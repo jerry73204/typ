@@ -14,3 +14,4 @@ syn = { version = "1.0", features = ["full", "extra-traits", "visit-mut"] }
 quote = "1.0"
 proc-macro2 = "1.0"
 itertools = "0.9"
+linked_hash_set = "0.1"
