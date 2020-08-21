@@ -1,6 +1,6 @@
 use crate::{
     common::*,
-    path::{TraitBoundsVar, TypeVar},
+    var::{TraitBoundsVar, TypeVar},
 };
 pub use quantifier_dict::*;
 pub use scope::*;

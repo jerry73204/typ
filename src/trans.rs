@@ -1,8 +1,8 @@
 use crate::{
     common::*,
     env::Env,
-    path::{TraitBoundsVar, TypeVar},
     scope::{RootScope, Scope, SubScope},
+    var::{TraitBoundsVar, TypeVar},
 };
 
 pub fn translate_items(items: &[Item]) -> syn::Result<TokenStream> {
@@ -218,7 +218,7 @@ fn translate_fn(
     } = sig;
 
     // create root scope and env
-    let env = Env::new();
+    let mut env = Env::new();
     let mut scope = RootScope::new();
 
     // TODO
@@ -300,11 +300,15 @@ fn translate_fn(
     };
 
     // translate block
-    let sub_env = env
-        .create_mod(trait_op_name.clone())
-        .expect("please report bug");
+    {
+        let mut sub_env = env
+            .create_mod(trait_op_name.clone())
+            .expect("please report bug");
 
-    let value = translate_block(&block, &mut scope, &env)?;
+        let value = translate_block(&block, &mut scope, &mut sub_env)?;
+
+        todo!();
+    }
 
     // build trait and impls
     env.create_trait_by_name(trait_op_name.clone(), |builder| {
@@ -314,7 +318,7 @@ fn translate_fn(
     todo!();
 }
 
-fn translate_block<S>(block: &Block, scope: &mut S, env: &Env) -> syn::Result<TypeVar>
+fn translate_block<S>(block: &Block, scope: &mut S, env: &mut Env) -> syn::Result<TypeVar>
 where
     S: Scope,
 {
@@ -392,7 +396,7 @@ where
     todo!();
 }
 
-fn translate_expr<S>(expr: &Expr, scope: &mut S, env: &Env) -> syn::Result<Rc<TypeVar>>
+fn translate_expr<S>(expr: &Expr, scope: &mut S, env: &mut Env) -> syn::Result<Rc<TypeVar>>
 where
     S: Scope,
 {
@@ -410,7 +414,11 @@ where
     }
 }
 
-fn translate_match_expr<S>(match_: &ExprMatch, scope: &mut S, env: &Env) -> syn::Result<Rc<TypeVar>>
+fn translate_match_expr<S>(
+    match_: &ExprMatch,
+    scope: &mut S,
+    env: &mut Env,
+) -> syn::Result<Rc<TypeVar>>
 where
     S: Scope,
 {
@@ -473,7 +481,7 @@ where
     todo!();
 }
 
-fn translate_path_expr<S>(path: &ExprPath, scope: &mut S, env: &Env) -> syn::Result<Rc<TypeVar>>
+fn translate_path_expr<S>(path: &ExprPath, scope: &mut S, env: &mut Env) -> syn::Result<Rc<TypeVar>>
 where
     S: Scope,
 {
@@ -490,7 +498,11 @@ where
     todo!();
 }
 
-fn translate_tuple_expr<S>(tuple: &ExprTuple, scope: &mut S, env: &Env) -> syn::Result<Rc<TypeVar>>
+fn translate_tuple_expr<S>(
+    tuple: &ExprTuple,
+    scope: &mut S,
+    env: &mut Env,
+) -> syn::Result<Rc<TypeVar>>
 where
     S: Scope,
 {
@@ -531,7 +543,7 @@ where
     todo!();
 }
 
-fn translate_if_expr<S>(if_: &ExprIf, scope: &mut S, env: &Env) -> syn::Result<Rc<TypeVar>>
+fn translate_if_expr<S>(if_: &ExprIf, scope: &mut S, env: &mut Env) -> syn::Result<Rc<TypeVar>>
 where
     S: Scope,
 {
@@ -551,7 +563,11 @@ where
     todo!();
 }
 
-fn translate_block_expr<S>(block: &ExprBlock, scope: &mut S, env: &Env) -> syn::Result<Rc<TypeVar>>
+fn translate_block_expr<S>(
+    block: &ExprBlock,
+    scope: &mut S,
+    env: &mut Env,
+) -> syn::Result<Rc<TypeVar>>
 where
     S: Scope,
 {
@@ -568,7 +584,7 @@ where
     todo!();
 }
 
-fn translate_call_expr<S>(call: &ExprCall, scope: &mut S, env: &Env) -> syn::Result<Rc<TypeVar>>
+fn translate_call_expr<S>(call: &ExprCall, scope: &mut S, env: &mut Env) -> syn::Result<Rc<TypeVar>>
 where
     S: Scope,
 {
