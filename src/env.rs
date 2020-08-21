@@ -12,6 +12,38 @@ impl Env {
         }
     }
 
+    pub fn create_trait_by_name<F, T>(&self, name: Ident, f: F) -> T
+    where
+        F: FnOnce(&mut TraitBuilder) -> T,
+    {
+        let mut builder = TraitBuilder::new(name.clone());
+        let ret = f(&mut builder);
+        let trait_def = builder.build();
+        self.state.borrow_mut().traits.insert(name, trait_def);
+        ret
+    }
+
+    pub fn create_trait_by_prefix<F, T>(&self, prefix: String, f: F) -> T
+    where
+        F: FnOnce(&Ident, &mut TraitBuilder) -> T,
+    {
+        let count = {
+            let prefixes = &mut self.state.borrow_mut().trait_name_prefixes;
+            if let Some(_) = prefixes.subtrie_mut(&prefix) {
+                panic!("the trait name cannot proper prefix of existing trait names");
+            }
+            prefixes.map_with_default(prefix.clone(), |count| *count += 1, 0);
+            *prefixes.get(&prefix).unwrap()
+        };
+
+        let ident = format_ident!("{}{}", prefix, count);
+        let mut builder = TraitBuilder::new(ident.clone());
+        let ret = f(&ident, &mut builder);
+        let trait_def = builder.build();
+        self.state.borrow_mut().traits.insert(ident, trait_def);
+        ret
+    }
+
     pub fn create_impl<F, T>(&self, f: F) -> T
     where
         F: FnOnce(&mut ImplBuilder) -> T,
@@ -42,16 +74,20 @@ impl Env {
 #[derive(Debug)]
 struct EnvState {
     parent: Option<Rc<RefCell<EnvState>>>,
+    trait_name_prefixes: Trie<String, usize>,
     mods: HashMap<Ident, Rc<RefCell<EnvState>>>,
     impls: Vec<ImplDef>,
+    traits: HashMap<Ident, TraitDef>,
 }
 
 impl EnvState {
     pub fn new(parent: Option<Rc<RefCell<Self>>>) -> Rc<RefCell<Self>> {
         Rc::new(RefCell::new(Self {
             parent,
+            trait_name_prefixes: Trie::new(),
             mods: HashMap::new(),
             impls: vec![],
+            traits: HashMap::new(),
         }))
     }
 }
@@ -98,6 +134,60 @@ impl ImplBuilder {
 
 #[derive(Debug)]
 pub struct ImplDef {
+    generics: Vec<Ident>,
+    associated_types: HashMap<Ident, TokenStream>,
+}
+
+#[derive(Debug)]
+pub struct TraitBuilder {
+    ident: Ident,
+    generics_opt: Option<LinkedHashSet<Ident>>,
+    associated_types: HashMap<Ident, TokenStream>,
+}
+
+impl TraitBuilder {
+    pub fn new(ident: Ident) -> Self {
+        Self {
+            ident,
+            associated_types: HashMap::new(),
+            generics_opt: None,
+        }
+    }
+
+    pub fn set_generics(&mut self, generics: LinkedHashSet<Ident>) {
+        self.generics_opt = Some(generics);
+    }
+
+    pub fn insert_associated_type(
+        &mut self,
+        ident: Ident,
+        value: TokenStream,
+    ) -> Option<TokenStream> {
+        self.associated_types.insert(ident, value)
+    }
+
+    pub fn build(self) -> TraitDef {
+        let Self {
+            ident,
+            associated_types,
+            generics_opt,
+        } = self;
+
+        let generics = generics_opt
+            .map(|generics| generics.into_iter().collect())
+            .unwrap_or_else(|| vec![]);
+
+        TraitDef {
+            ident,
+            generics,
+            associated_types,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct TraitDef {
+    ident: Ident,
     generics: Vec<Ident>,
     associated_types: HashMap<Ident, TokenStream>,
 }

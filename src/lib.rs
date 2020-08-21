@@ -1,8 +1,10 @@
+#![feature(refcell_take)]
+
 mod common;
 mod env;
-mod path;
 mod scope;
 mod trans;
+mod var;
 
 use crate::common::*;
 

@@ -1,19 +1,9 @@
 use crate::{
     common::*,
+    env::Env,
     path::{TraitBoundsVar, TypeVar},
-    scope::{Scope, TraitBoundDict},
+    scope::{RootScope, Scope, SubScope},
 };
-
-#[derive(Debug)]
-struct FnEnv {
-    scope: Scope,
-}
-
-#[derive(Debug)]
-struct FnOutput {
-    output_ty: TokenStream,
-    env: FnEnv,
-}
 
 pub fn translate_items(items: &[Item]) -> syn::Result<TokenStream> {
     let tokens_vec: Vec<_> = items
@@ -49,119 +39,120 @@ fn translate_struct(_struct_: &ItemStruct) -> syn::Result<TokenStream> {
 }
 
 fn translate_enum(enum_: &ItemEnum) -> syn::Result<TokenStream> {
-    let ItemEnum {
-        vis,
-        ident: trait_name,
-        variants,
-        ..
-    } = enum_;
+    todo!();
+    // let ItemEnum {
+    //     vis,
+    //     ident: trait_name,
+    //     variants,
+    //     ..
+    // } = enum_;
 
-    let types: Vec<_> = variants
-        .iter()
-        .map(|variant| -> syn::Result<_> {
-            let Variant {
-                ident: type_name,
-                fields,
-                ..
-            } = variant;
+    // let types: Vec<_> = variants
+    //     .iter()
+    //     .map(|variant| -> syn::Result<_> {
+    //         let Variant {
+    //             ident: type_name,
+    //             fields,
+    //             ..
+    //         } = variant;
 
-            let generics = match fields {
-                Fields::Unit => vec![],
-                Fields::Unnamed(unnamed) => {
-                    let generics: Vec<_> = unnamed
-                        .unnamed
-                        .iter()
-                        .enumerate()
-                        .map(|(index, field)| -> syn::Result<_> {
-                            let Field { ty, .. } = field;
-                            let generic_name = format_ident!("T{}", index);
-                            let trait_bounds = ty_to_trait_bounds(ty)?;
+    //         let generics = match fields {
+    //             Fields::Unit => vec![],
+    //             Fields::Unnamed(unnamed) => {
+    //                 let generics: Vec<_> = unnamed
+    //                     .unnamed
+    //                     .iter()
+    //                     .enumerate()
+    //                     .map(|(index, field)| -> syn::Result<_> {
+    //                         let Field { ty, .. } = field;
+    //                         let generic_name = format_ident!("T{}", index);
+    //                         let trait_bounds = ty_to_trait_bounds(ty)?;
 
-                            Ok((generic_name, trait_bounds))
-                        })
-                        .try_collect()?;
+    //                         Ok((generic_name, trait_bounds))
+    //                     })
+    //                     .try_collect()?;
 
-                    generics
-                }
-                Fields::Named(named) => {
-                    let generics: Vec<_> = named
-                        .named
-                        .iter()
-                        .map(|field| -> syn::Result<_> {
-                            let Field { ident, ty, .. } = field;
-                            let generic_name = ident.to_owned().unwrap();
-                            let trait_bounds = ty_to_trait_bounds(ty)?;
+    //                 generics
+    //             }
+    //             Fields::Named(named) => {
+    //                 let generics: Vec<_> = named
+    //                     .named
+    //                     .iter()
+    //                     .map(|field| -> syn::Result<_> {
+    //                         let Field { ident, ty, .. } = field;
+    //                         let generic_name = ident.to_owned().unwrap();
+    //                         let trait_bounds = ty_to_trait_bounds(ty)?;
 
-                            Ok((generic_name.to_owned(), trait_bounds))
-                        })
-                        .try_collect()?;
+    //                         Ok((generic_name.to_owned(), trait_bounds))
+    //                     })
+    //                     .try_collect()?;
 
-                    generics
-                }
-            };
+    //                 generics
+    //             }
+    //         };
 
-            Ok((type_name, generics))
-        })
-        .try_collect()?;
+    //         Ok((type_name, generics))
+    //     })
+    //     .try_collect()?;
 
-    let impls = {
-        let items: Vec<_> = types
-            .into_iter()
-            .map(|(type_name, generics)| {
-                let generic_args = {
-                    let names: Vec<_> = generics.iter().map(|(name, _)| name).collect();
-                    quote! {
-                        #(#names),*
-                    }
-                };
+    // let impls = {
+    //     let items: Vec<_> = types
+    //         .into_iter()
+    //         .map(|(type_name, generics)| {
+    //             let generic_args = {
+    //                 let names: Vec<_> = generics.iter().map(|(name, _)| name).collect();
+    //                 quote! {
+    //                     #(#names),*
+    //                 }
+    //             };
 
-                let where_clause = {
-                    let bounds: Vec<_> = generics
-                        .iter()
-                        .filter_map(|(name, bounds)| {
-                            if bounds.is_empty() {
-                                None
-                            } else {
-                                Some(quote! {
-                                    #name: #(#bounds)+*
-                                })
-                            }
-                        })
-                        .collect();
+    //             let where_clause = {
+    //                 let bounds: Vec<_> = generics
+    //                     .iter()
+    //                     .filter_map(|(name, bounds)| {
+    //                         if bounds.is_empty() {
+    //                             None
+    //                         } else {
+    //                             Some(quote! {
+    //                                 #name: #(#bounds)+*
+    //                             })
+    //                         }
+    //                     })
+    //                     .collect();
 
-                    quote! {
-                        #(#bounds),*
-                    }
-                };
+    //                 quote! {
+    //                     #(#bounds),*
+    //                 }
+    //             };
 
-                quote! {
-                    #vis struct #type_name<#generic_args>
-                    where
-                        #where_clause
-                    {
-                        _phantom: ::core::marker::PhantomData<#generic_args>
-                    }
+    //             quote! {
+    //                 #vis struct #type_name<#generic_args>
+    //                 where
+    //                     #where_clause
+    //                 {
+    //                     _phantom: ::core::marker::PhantomData<#generic_args>
+    //                 }
 
-                    impl<#generic_args> #trait_name for #type_name<#generic_args>
-                    where
-                        #where_clause
-                    {}
-                }
-            })
-            .collect();
+    //                 impl<#generic_args> #trait_name for #type_name<#generic_args>
+    //                 where
+    //                     #where_clause
+    //                 {}
+    //             }
+    //         })
+    //         .collect();
 
-        quote! {
-            #(#items)*
-        }
-    };
+    //     quote! {
+    //         #(#items)*
+    //     }
+    // };
 
-    let expanded = quote! {
-        #vis trait #trait_name {}
+    // let expanded = quote! {
+    //     #vis trait #trait_name {}
 
-        #impls
-    };
+    //     #impls
+    // };
 
-    Ok(expanded)
+    // Ok(expanded)
 }
 
 fn translate_impl(impl_: &ItemImpl) -> syn::Result<TokenStream> {
@@ -226,8 +217,9 @@ fn translate_fn(
         ..
     } = sig;
 
-    // create root scope
-    let scope = Scope::new();
+    // create root scope and env
+    let env = Env::new();
+    let mut scope = RootScope::new();
 
     // TODO
     match (self_trait_opt, inputs.first()) {
@@ -247,7 +239,7 @@ fn translate_fn(
         }
     };
 
-    // turn function generics into initial quantifiers
+    // translate function generics to initial quantifiers
     {
         // function generics (ident, [path])
         let generic_args: Vec<(&Ident, _)> = generics
@@ -271,8 +263,10 @@ fn translate_fn(
 
         // add trait bounds for initial quantifiers
         for (ident, bounds) in generic_args.iter().cloned() {
-            let predicate = TypeVar::from(ident);
-            let bounds = TraitBoundsVar::from_scoped_type_param_bounds(&bounds, &scope)?;
+            let predicate = scope.type_var_builder().from_exact_ident(ident);
+            let bounds = scope
+                .trait_bounds_var_builder()
+                .from_scoped_type_param_bounds(&bounds)?;
             scope.insert_trait_bounds(predicate, bounds);
         }
     }
@@ -280,15 +274,15 @@ fn translate_fn(
     // turn function arguments into trait bounds
     {
         // get function arguments (type, trait bounds)
-        let fn_args: Vec<(TypeVar, TraitBoundsVar)> = inputs
+        let fn_args: Vec<(Rc<TypeVar>, Rc<TraitBoundsVar>)> = inputs
             .iter()
             .filter_map(|arg| match arg {
                 FnArg::Typed(pat_type) => Some(pat_type),
                 FnArg::Receiver(_) => None,
             })
             .map(|PatType { pat, ty, .. }| -> syn::Result<_> {
-                let type_ = TypeVar::from_scoped_pat(&**pat, &scope)?;
-                let trait_bounds = TraitBoundsVar::from_scoped_type(&**ty, &scope)?;
+                let type_ = scope.type_var_builder().from_scoped_pat(&**pat)?;
+                let trait_bounds = scope.trait_bounds_var_builder().from_scoped_type(&**ty)?;
                 Ok((type_, trait_bounds))
             })
             .try_collect()?;
@@ -299,80 +293,127 @@ fn translate_fn(
         }
     }
 
-    // trait bound of output type
+    // translate output type to trait bound
     let output_trait_bounds = match output {
-        ReturnType::Default => TraitBoundsVar::new(),
-        ReturnType::Type(_, ty) => TraitBoundsVar::from_scoped_type(ty, &scope)?,
+        ReturnType::Default => scope.trait_bounds_var_builder().empty(),
+        ReturnType::Type(_, ty) => scope.trait_bounds_var_builder().from_scoped_type(ty)?,
     };
 
-    let env = {
-        FnEnv {
-            scope: Scope::new(),
-        }
-    };
+    // translate block
+    let sub_env = env
+        .create_mod(trait_op_name.clone())
+        .expect("please report bug");
 
-    translate_block(&block, env)?;
+    let value = translate_block(&block, &mut scope, &env)?;
 
-    // quote! { #(#impls)* }
+    // build trait and impls
+    env.create_trait_by_name(trait_op_name.clone(), |builder| {
+        todo!();
+    });
+
     todo!();
 }
 
-fn translate_block(block: &Block, env: FnEnv) -> syn::Result<()> {
-    for stmt in block.stmts.iter() {
-        match stmt {
-            Stmt::Local(local) => {
-                let (pat, expr) = match local {
-                    Local {
-                        pat,
-                        init: Some((_eq, expr)),
-                        ..
-                    } => (pat, expr),
-                    _ => return Err(Error::new(local.span(), "no initial type")),
-                };
+fn translate_block<S>(block: &Block, scope: &mut S, env: &Env) -> syn::Result<TypeVar>
+where
+    S: Scope,
+{
+    let mut output_value = None;
 
-                let (local_ident, local_bounds) = match pat {
-                    Pat::Ident(pat_ident) => (&pat_ident.ident, vec![]),
-                    Pat::Type(PatType { pat, ty, .. }) => {
-                        let ident = match &**pat {
-                            Pat::Ident(pat_ident) => &pat_ident.ident,
-                            _ => return Err(Error::new(pat.span(), "not an identifier")),
+    // creates a subscope
+    scope.sub_scope(|scope| {
+        for stmt in block.stmts.iter() {
+            match stmt {
+                Stmt::Local(local) => {
+                    // parse let statement
+                    let (ident, trait_bounds_opt, is_mut, expr) = {
+                        let (pat, expr) = match local {
+                            Local {
+                                pat,
+                                init: Some((_eq, expr)),
+                                ..
+                            } => (pat, expr),
+                            _ => {
+                                return Err(Error::new(local.span(), "initial type must be given"))
+                            }
                         };
-                        (ident, ty_to_trait_bounds(&*ty)?)
+
+                        let (ident, trait_bounds_opt, is_mut) = match pat {
+                            Pat::Ident(PatIdent {
+                                ident, mutability, ..
+                            }) => (ident, None, matches!(mutability, Some(_))),
+                            Pat::Type(PatType { pat, ty, .. }) => {
+                                let (ident, is_mut) = match &**pat {
+                                    Pat::Ident(PatIdent {
+                                        ident, mutability, ..
+                                    }) => (ident, matches!(mutability, Some(_))),
+                                    _ => return Err(Error::new(local.span(), "not an identifier")),
+                                };
+                                let trait_bounds =
+                                    scope.trait_bounds_var_builder().from_scoped_type(ty)?;
+
+                                (ident, Some(trait_bounds), is_mut)
+                            }
+                            _ => return Err(Error::new(pat.span(), "not a identifier")),
+                        };
+
+                        (ident, trait_bounds_opt, is_mut, expr)
+                    };
+
+                    // compute output type from expression
+                    let value = translate_expr(expr, scope, env)?;
+
+                    // register the local quantifier
+                    scope.insert_quantifier(ident.to_owned(), value, false);
+                    if let Some(trait_bounds) = trait_bounds_opt {
+                        let predicate = scope
+                            .type_var_builder()
+                            .from_quantifier(ident)
+                            .expect("please report bug");
+                        scope.insert_trait_bounds(predicate, trait_bounds);
                     }
-                    _ => return Err(Error::new(pat.span(), "not a valid binding")),
-                };
-            }
-            Stmt::Item(item) => {
-                return Err(Error::new(item.span(), "in-block item is not supported"))
-            }
-            Stmt::Expr(expr) => {
-                todo!();
-            }
-            Stmt::Semi(expr, _semi) => {
-                todo!();
+                }
+                Stmt::Item(item) => {
+                    return Err(Error::new(item.span(), "in-block item is not allowed"))
+                }
+                Stmt::Expr(expr) => {
+                    assert!(matches!(output_value, None), "please report bug");
+                    output_value = Some(translate_expr(expr, scope, env)?);
+                }
+                Stmt::Semi(expr, _semi) => {
+                    translate_expr(expr, scope, env)?;
+                }
             }
         }
-    }
+
+        Ok(())
+    })?;
 
     todo!();
 }
 
-fn translate_expr(expr: &Expr, env: FnEnv) -> Vec<FnOutput> {
+fn translate_expr<S>(expr: &Expr, scope: &mut S, env: &Env) -> syn::Result<Rc<TypeVar>>
+where
+    S: Scope,
+{
     match expr {
-        Expr::Match(match_) => translate_match_expr(match_, env),
-        Expr::Path(path) => translate_path_expr(path, env),
-        Expr::Tuple(tuple) => translate_tuple_expr(tuple, env),
-        Expr::Binary(binop) => translate_binary_expr(binop, env),
-        Expr::If(if_) => translate_if_expr(if_, env),
-        Expr::Block(block) => translate_block_expr(block, env),
-        Expr::Call(call) => translate_call_expr(call, env),
-        Expr::Paren(paren) => translate_expr(&paren.expr, env),
-        // Expr::Let(let_) => translate_let_expr(let_, env),
+        Expr::Match(match_) => translate_match_expr(match_, scope, env),
+        Expr::Path(path) => translate_path_expr(path, scope, env),
+        Expr::Tuple(tuple) => translate_tuple_expr(tuple, scope, env),
+        Expr::Binary(binop) => translate_binary_expr(binop, scope, env),
+        Expr::If(if_) => translate_if_expr(if_, scope, env),
+        Expr::Block(block) => translate_block_expr(block, scope, env),
+        Expr::Call(call) => translate_call_expr(call, scope, env),
+        Expr::Paren(paren) => translate_expr(&paren.expr, scope, env),
+        // Expr::Let(let_) => translate_let_expr(let_, scope, env),
         _ => todo!("expr: {:?}", expr),
     }
 }
 
-fn translate_match_expr(match_: &ExprMatch, env: FnEnv) -> Vec<FnOutput> {
+fn translate_match_expr<S>(match_: &ExprMatch, scope: &mut S, env: &Env) -> syn::Result<Rc<TypeVar>>
+where
+    S: Scope,
+{
     // let matched_ident = if let Expr::Path(path) = &*match_.expr {
     //     path.path.get_ident().unwrap()
     // } else {
@@ -432,7 +473,10 @@ fn translate_match_expr(match_: &ExprMatch, env: FnEnv) -> Vec<FnOutput> {
     todo!();
 }
 
-fn translate_path_expr(path: &ExprPath, env: FnEnv) -> Vec<FnOutput> {
+fn translate_path_expr<S>(path: &ExprPath, scope: &mut S, env: &Env) -> syn::Result<Rc<TypeVar>>
+where
+    S: Scope,
+{
     // let ident = path.path.get_ident().unwrap();
     // let ty = env
     //     .substitutions
@@ -446,7 +490,10 @@ fn translate_path_expr(path: &ExprPath, env: FnEnv) -> Vec<FnOutput> {
     todo!();
 }
 
-fn translate_tuple_expr(tuple: &ExprTuple, env: FnEnv) -> Vec<FnOutput> {
+fn translate_tuple_expr<S>(tuple: &ExprTuple, scope: &mut S, env: &Env) -> syn::Result<Rc<TypeVar>>
+where
+    S: Scope,
+{
     // if tuple.elems.len() == 0 {
     //     vec![FnOutput {
     //         env: env.clone(),
@@ -458,7 +505,14 @@ fn translate_tuple_expr(tuple: &ExprTuple, env: FnEnv) -> Vec<FnOutput> {
     todo!();
 }
 
-fn translate_binary_expr(binop: &ExprBinary, env: FnEnv) -> Vec<FnOutput> {
+fn translate_binary_expr<S>(
+    binop: &ExprBinary,
+    scope: &mut S,
+    env: &Env,
+) -> syn::Result<Rc<TypeVar>>
+where
+    S: Scope,
+{
     // let ExprBinary {
     //     left, right, op, ..
     // } = binop;
@@ -477,7 +531,10 @@ fn translate_binary_expr(binop: &ExprBinary, env: FnEnv) -> Vec<FnOutput> {
     todo!();
 }
 
-fn translate_if_expr(if_: &ExprIf, env: FnEnv) -> Vec<FnOutput> {
+fn translate_if_expr<S>(if_: &ExprIf, scope: &mut S, env: &Env) -> syn::Result<Rc<TypeVar>>
+where
+    S: Scope,
+{
     // let ExprIf {
     //     cond,
     //     then_branch,
@@ -494,7 +551,10 @@ fn translate_if_expr(if_: &ExprIf, env: FnEnv) -> Vec<FnOutput> {
     todo!();
 }
 
-fn translate_block_expr(block: &ExprBlock, env: FnEnv) -> Vec<FnOutput> {
+fn translate_block_expr<S>(block: &ExprBlock, scope: &mut S, env: &Env) -> syn::Result<Rc<TypeVar>>
+where
+    S: Scope,
+{
     // block.block.stmts.iter().fold(env.clone(), |env, stmt| {
     //     // TODO
     //     match stmt {
@@ -508,7 +568,10 @@ fn translate_block_expr(block: &ExprBlock, env: FnEnv) -> Vec<FnOutput> {
     todo!();
 }
 
-fn translate_call_expr(call: &ExprCall, env: FnEnv) -> Vec<FnOutput> {
+fn translate_call_expr<S>(call: &ExprCall, scope: &mut S, env: &Env) -> syn::Result<Rc<TypeVar>>
+where
+    S: Scope,
+{
     // let ExprCall { func, args, .. } = call;
 
     // let func_ident = if let Expr::Path(path) = &**func {
@@ -538,41 +601,10 @@ fn translate_call_expr(call: &ExprCall, env: FnEnv) -> Vec<FnOutput> {
     todo!();
 }
 
-fn translate_pat(pat: &Pat) -> (Ident, Vec<(Ident, Ident)>) {
-    // match pat {
-    //     Pat::Ident(PatIdent { ident, .. }) => (ident.clone(), vec![]),
-    //     Pat::TupleStruct(tuple_struct) => {
-    //         let variant = tuple_struct.path.get_ident().unwrap().clone();
-    //         let fields = tuple_struct
-    //             .pat
-    //             .elems
-    //             .iter()
-    //             .map(|p| {
-    //                 if let Pat::Ident(PatIdent { ident, subpat, .. }) = &p {
-    //                     let kind = if let Some((_, p2)) = subpat {
-    //                         if let Pat::Ident(PatIdent { ident, .. }) = &**p2 {
-    //                             ident.clone()
-    //                         } else {
-    //                             panic!("RHS of @ must be an ident")
-    //                         }
-    //                     } else {
-    //                         panic!("Match tuple struct must have @ trait annotation")
-    //                     };
-
-    //                     (ident.clone(), kind)
-    //                 } else {
-    //                     todo!("match pat ident")
-    //                 }
-    //             })
-    //             .collect::<Vec<_>>();
-    //         (variant, fields)
-    //     }
-    //     _ => todo!("match pat"),
-    // }
-    todo!();
-}
-
-fn ty_to_trait_bounds(ty: &Type) -> syn::Result<Vec<&Path>> {
+fn ty_to_trait_bounds<S>(ty: &Type) -> syn::Result<Vec<&Path>>
+where
+    S: Scope,
+{
     let bounds = match ty {
         Type::Infer(_) => vec![],
         Type::Path(path) => vec![&path.path],
