@@ -1,4 +1,9 @@
-use crate::common::*;
+use crate::{common::*, scope::ScopeState};
+
+// pub struct Scoped<T> {
+//     pub scope: Weak<ScopeState>,
+//     pub var: T,
+// }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SegmentVar {
@@ -8,13 +13,25 @@ pub struct SegmentVar {
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum TypeVar {
-    Var(usize),
-    Path(Vec<SegmentVar>),
+    Var {
+        id: usize,
+    },
+    QSelf {
+        ty: Box<TypeVar>,
+        trait_: TraitVar,
+        associated: Vec<SegmentVar>,
+    },
+    Path {
+        segments: Vec<SegmentVar>,
+    },
+    Tuple {
+        types: Vec<TypeVar>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TraitVar {
-    pub path: Vec<SegmentVar>,
+    pub segments: Vec<SegmentVar>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

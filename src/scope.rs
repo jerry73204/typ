@@ -12,7 +12,7 @@ mod scope {
 
     pub trait Scope
     where
-        Self: Sized,
+        Self: Sized + Debug,
     {
         fn take_state(&mut self) -> ScopeState;
 
@@ -28,15 +28,20 @@ mod scope {
 
         fn get_var_id(&self, ident: &Ident) -> Option<usize>;
 
-        fn assign_quantifier_on_parent(&mut self, ident: Ident, value: Rc<TypeVar>) -> bool;
+        fn assign_quantifier_on_parent(&mut self, ident: &Ident, value: Rc<TypeVar>) -> bool;
+
+        fn branch(&self) -> RootScope;
 
         fn insert_initial_quantifier(&mut self, ident: Ident) {
-            let value = self.type_var_builder().from_exact_ident(&ident);
+            let value = self.type_var_builder().from_ident(&ident);
             self.insert_quantifier(ident, value, false);
         }
 
         fn insert_quantifier(&mut self, ident: Ident, value: Rc<TypeVar>, is_mut: bool) {
-            assert!(self.state().type_vars.contains(&value), "please report bug");
+            assert!(
+                self.state().type_vars.contains(&value),
+                "please report bug: the type is not bounded"
+            );
 
             // obtain a new variable id
             let var_id = self.create_var_id();
@@ -48,9 +53,9 @@ mod scope {
             self.state_mut().trait_bounds.insert(predicate, bounds);
         }
 
-        fn assign_quantifier(&mut self, ident: Ident, value: Rc<TypeVar>) -> bool {
+        fn assign_quantifier(&mut self, ident: &Ident, value: Rc<TypeVar>) -> bool {
             // check if the identifier is defined in this scope
-            match self.bounded_quantifiers().get(&ident).copied() {
+            match self.bounded_quantifiers().get(ident).copied() {
                 Some(prev_var_id) => {
                     let (is_mut, _) = self.state().quantifiers.get(&prev_var_id);
 
@@ -58,7 +63,8 @@ mod scope {
                     if is_mut {
                         let new_var_id = self.create_var_id();
                         self.state_mut().quantifiers.insert(new_var_id, value, true);
-                        self.bounded_quantifiers_mut().insert(ident, new_var_id);
+                        self.bounded_quantifiers_mut()
+                            .insert(ident.to_owned(), new_var_id);
                         true
                     } else {
                         false
@@ -105,6 +111,10 @@ mod scope {
             var
         }
 
+        fn contains_type_var(&self, var: &Rc<TypeVar>) -> bool {
+            self.state().type_vars.contains(var)
+        }
+
         fn sub_scope<'a, F, T>(&'a mut self, f: F) -> T
         where
             F: FnOnce(&mut SubScope<'a, Self>) -> T,
@@ -119,7 +129,9 @@ mod scope {
 
                 let ret = f(&mut sub_scope);
                 let me = sub_scope.parent;
-                let state = sub_scope.state.expect("please report bug");
+                let state = sub_scope
+                    .state
+                    .expect("please report bug: the subscope does not have a valid state");
                 (me, ret, state)
             };
             me.set_state(state);
@@ -127,7 +139,7 @@ mod scope {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct RootScope {
         bounded_quantifiers: HashMap<Ident, usize>,
         state: Option<ScopeState>,
@@ -144,7 +156,9 @@ mod scope {
 
     impl Scope for RootScope {
         fn take_state(&mut self) -> ScopeState {
-            self.state.take().expect("please report bug")
+            self.state
+                .take()
+                .expect("please report bug: the state is already taken")
         }
 
         fn set_state(&mut self, state: ScopeState) {
@@ -167,12 +181,16 @@ mod scope {
             &mut self.bounded_quantifiers
         }
 
-        fn assign_quantifier_on_parent(&mut self, _ident: Ident, _value: Rc<TypeVar>) -> bool {
+        fn assign_quantifier_on_parent(&mut self, _ident: &Ident, _value: Rc<TypeVar>) -> bool {
             false
         }
 
         fn get_var_id(&self, ident: &Ident) -> Option<usize> {
             self.bounded_quantifiers().get(ident).copied()
+        }
+
+        fn branch(&self) -> RootScope {
+            self.clone()
         }
     }
 
@@ -191,7 +209,9 @@ mod scope {
         S: Scope,
     {
         fn take_state(&mut self) -> ScopeState {
-            self.state.take().expect("please report bug")
+            self.state
+                .take()
+                .expect("please report bug: the state is already taken")
         }
 
         fn set_state(&mut self, state: ScopeState) {
@@ -214,7 +234,7 @@ mod scope {
             &mut self.bounded_quantifiers
         }
 
-        fn assign_quantifier_on_parent(&mut self, ident: Ident, value: Rc<TypeVar>) -> bool {
+        fn assign_quantifier_on_parent(&mut self, ident: &Ident, value: Rc<TypeVar>) -> bool {
             self.parent.assign_quantifier(ident, value)
         }
 
@@ -224,9 +244,26 @@ mod scope {
                 .copied()
                 .or_else(|| self.parent.get_var_id(ident))
         }
+
+        fn branch(&self) -> RootScope {
+            let Self {
+                parent,
+                bounded_quantifiers,
+                state,
+            } = self;
+
+            let mut scope = parent.branch();
+            scope.bounded_quantifiers = scope
+                .bounded_quantifiers
+                .into_iter()
+                .chain(bounded_quantifiers.clone().into_iter())
+                .collect();
+            scope.state = state.clone();
+            scope
+        }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct ScopeState {
         var_counter: usize,
         trait_bounds: TraitBoundDict,
@@ -270,14 +307,16 @@ mod var_builder {
             Self { scope }
         }
 
-        pub fn from_exact_ident(&mut self, ident: &Ident) -> Rc<TypeVar>
+        pub fn from_ident(&mut self, ident: &Ident) -> Rc<TypeVar>
         where
             S: Scope,
         {
-            let var = TypeVar::Path(vec![SegmentVar {
-                ident: ident.to_owned(),
-                generic_args: vec![],
-            }]);
+            let var = TypeVar::Path {
+                segments: vec![SegmentVar {
+                    ident: ident.to_owned(),
+                    generic_args: vec![],
+                }],
+            };
             self.scope.add_type_var(var)
         }
 
@@ -285,25 +324,44 @@ mod var_builder {
         where
             S: Scope,
         {
-            let var_id = self.scope.get_var_id(ident)?;
-            let var = TypeVar::Var(var_id);
+            let var = TypeVar::Var {
+                id: self.scope.get_var_id(ident)?,
+            };
             Some(self.scope.add_type_var(var))
         }
 
-        pub fn from_scoped_path(&mut self, path: &Path) -> syn::Result<Rc<TypeVar>>
+        pub fn from_path(&mut self, qself: Option<&QSelf>, path: &Path) -> syn::Result<Rc<TypeVar>>
         where
             S: Scope,
         {
-            let var = type_var_fn::from_scoped_path(self.scope, path)?;
+            let var = type_var_fn::from_path(self.scope, qself, path)?;
             Ok(self.scope.add_type_var(var))
         }
 
-        pub fn from_scoped_pat(&mut self, pat: &Pat) -> syn::Result<Rc<TypeVar>>
+        pub fn from_pat(&mut self, pat: &Pat) -> syn::Result<Rc<TypeVar>>
         where
             S: Scope,
         {
-            let var = type_var_fn::from_scoped_pat(self.scope, pat)?;
+            let var = type_var_fn::from_pat(self.scope, pat)?;
             Ok(self.scope.add_type_var(var))
+        }
+
+        pub fn make_tuple(&mut self, paths: &[Rc<TypeVar>]) -> Rc<TypeVar>
+        where
+            S: Scope,
+        {
+            let types = paths
+                .iter()
+                .map(|ty| {
+                    assert!(
+                        self.scope.contains_type_var(ty),
+                        "please report bug: the type var is not valid"
+                    );
+                    ty.as_ref().to_owned()
+                })
+                .collect();
+            let var = TypeVar::Tuple { types };
+            self.scope.add_type_var(var)
         }
     }
 
@@ -323,8 +381,8 @@ mod var_builder {
             Self { scope }
         }
 
-        pub fn from_scoped_path(&mut self, path: &Path) -> syn::Result<Rc<TraitVar>> {
-            let var = trait_var_fn::from_scoped_path(self.scope, path)?;
+        pub fn from_path(&mut self, path: &Path) -> syn::Result<Rc<TraitVar>> {
+            let var = trait_var_fn::from_path(self.scope, path)?;
             Ok(self.scope.add_trait_var(var))
         }
     }
@@ -349,51 +407,41 @@ mod var_builder {
             let var = TraitBoundsVar::empty();
             self.scope.add_trait_bounds_var(var)
         }
-
-        pub fn from_scoped_paths(&mut self, paths: &[&Path]) -> syn::Result<Rc<TraitBoundsVar>> {
-            let var = trait_bounds_var_fn::from_scoped_paths(self.scope, paths)?;
+        pub fn from_type(&mut self, ty: &Type) -> syn::Result<Rc<TraitBoundsVar>> {
+            let var = trait_bounds_var_fn::from_type(self.scope, ty)?;
             Ok(self.scope.add_trait_bounds_var(var))
         }
 
-        pub fn from_scoped_type(&mut self, ty: &Type) -> syn::Result<Rc<TraitBoundsVar>> {
-            let var = trait_bounds_var_fn::from_scoped_type(self.scope, ty)?;
-            Ok(self.scope.add_trait_bounds_var(var))
-        }
-
-        pub fn from_scoped_type_param_bounds(
+        pub fn from_type_param_bounds(
             &mut self,
             bounds: &Punctuated<TypeParamBound, syn::token::Add>,
         ) -> syn::Result<Rc<TraitBoundsVar>> {
-            let var = trait_bounds_var_fn::from_scoped_type_param_bounds(self.scope, bounds)?;
+            let var = trait_bounds_var_fn::from_type_param_bounds(self.scope, bounds)?;
             Ok(self.scope.add_trait_bounds_var(var))
         }
     }
 
-    mod type_var_fn {
+    mod segment_var_fn {
         use super::*;
 
-        pub fn from_scoped_path<S>(scope: &S, path: &Path) -> syn::Result<TypeVar>
+        pub fn from_segments<S, I, P>(scope: &S, segments: I) -> syn::Result<Vec<SegmentVar>>
         where
             S: Scope,
+            I: IntoIterator<Item = P>,
+            P: Borrow<PathSegment>,
         {
-            // check if the path coincides with quantifiers
-            if let Some(ident) = path.get_ident() {
-                if let Some(var_id) = scope.get_var_id(ident) {
-                    let var = TypeVar::Var(var_id);
-                    return Ok(var);
-                }
-            }
-
-            let segments: Vec<_> = path
-                .segments
-                .iter()
+            segments
+                .into_iter()
                 .map(|segment| {
-                    let ident = segment.ident.to_owned();
-                    let generic_args = match &segment.arguments {
+                    let PathSegment {
+                        ident, arguments, ..
+                    } = segment.borrow();
+
+                    let generic_args = match &arguments {
                         PathArguments::None => vec![],
                         PathArguments::Parenthesized(_) => {
                             return Err(Error::new(
-                                segment.arguments.span(),
+                                arguments.span(),
                                 "parenthesized arguments are not allowed",
                             ));
                         }
@@ -403,8 +451,8 @@ mod var_builder {
                                 .iter()
                                 .map(|arg| -> syn::Result<_> {
                                     match arg {
-                                        GenericArgument::Type(Type::Path(ty_path)) => {
-                                            from_scoped_path(scope, &ty_path.path)
+                                        GenericArgument::Type(ty) => {
+                                            type_var_fn::from_type(scope, ty)
                                         }
                                         _ => Err(Error::new(
                                             arg.span(),
@@ -418,33 +466,88 @@ mod var_builder {
                     };
 
                     Ok(SegmentVar {
-                        ident,
+                        ident: ident.to_owned(),
                         generic_args,
                     })
                 })
-                .try_collect()?;
+                .try_collect()
+        }
+    }
 
-            let var = TypeVar::Path(segments);
+    mod type_var_fn {
+        use super::*;
+
+        pub fn from_type<S>(scope: &S, ty: &Type) -> syn::Result<TypeVar>
+        where
+            S: Scope,
+        {
+            match ty {
+                Type::Path(TypePath { qself, path, .. }) => from_path(scope, qself.as_ref(), path),
+                Type::Paren(TypeParen { elem, .. }) => from_type(scope, &*elem),
+                Type::Tuple(TypeTuple { elems, .. }) => {
+                    let types: Vec<_> = elems
+                        .iter()
+                        .map(|elem| from_type(scope, elem))
+                        .try_collect()?;
+                    Ok(TypeVar::Tuple { types })
+                }
+                _ => return Err(Error::new(ty.span(), "unsupported type variant")),
+            }
+        }
+
+        pub fn from_path<S>(scope: &S, qself: Option<&QSelf>, path: &Path) -> syn::Result<TypeVar>
+        where
+            S: Scope,
+        {
+            let var = match qself {
+                Some(QSelf { ty, position, .. }) => {
+                    let position = *position;
+                    let ty = from_type(scope, &**ty)?;
+                    let iter = path.segments.iter();
+                    let trait_ =
+                        trait_var_fn::from_path_segments(scope, iter.clone().take(position))?;
+                    let associated = segment_var_fn::from_segments(scope, iter.skip(position))?;
+                    TypeVar::QSelf {
+                        ty: Box::new(ty),
+                        trait_,
+                        associated,
+                    }
+                }
+                None => {
+                    // check if the path coincides with quantifiers
+                    if let Some(ident) = path.get_ident() {
+                        if let Some(var_id) = scope.get_var_id(ident) {
+                            let var = TypeVar::Var { id: var_id };
+                            return Ok(var);
+                        }
+                    }
+
+                    let segments = segment_var_fn::from_segments(scope, &path.segments)?;
+                    TypeVar::Path { segments }
+                }
+            };
+
             Ok(var)
         }
 
-        pub fn from_scoped_pat<S>(scope: &S, pat: &Pat) -> syn::Result<TypeVar>
+        pub fn from_pat<S>(scope: &S, pat: &Pat) -> syn::Result<TypeVar>
         where
             S: Scope,
         {
             match pat {
-                Pat::Ident(pat_ident) => {
-                    let ident = &pat_ident.ident;
+                Pat::Ident(PatIdent { ident, .. }) => {
                     let var = match scope.get_var_id(ident) {
-                        Some(var_id) => TypeVar::Var(var_id),
-                        None => TypeVar::Path(vec![SegmentVar {
-                            ident: ident.to_owned(),
-                            generic_args: vec![],
-                        }]),
+                        Some(var_id) => TypeVar::Var { id: var_id },
+                        None => TypeVar::Path {
+                            segments: vec![SegmentVar {
+                                ident: ident.to_owned(),
+                                generic_args: vec![],
+                            }],
+                        },
                     };
                     Ok(var)
                 }
-                Pat::Path(pat_path) => from_scoped_path(scope, &pat_path.path),
+                Pat::Path(PatPath { qself, path, .. }) => from_path(scope, qself.as_ref(), path),
                 _ => Err(Error::new(pat.span(), "not an type")),
             }
         }
@@ -453,124 +556,60 @@ mod var_builder {
     mod trait_var_fn {
         use super::*;
 
-        pub fn from_scoped_path<S>(scope: &S, path: &Path) -> syn::Result<TraitVar>
+        pub fn from_path<S>(scope: &S, Path { segments, .. }: &Path) -> syn::Result<TraitVar>
         where
             S: Scope,
         {
-            let path: Vec<_> = path
-                .segments
-                .iter()
-                .map(|segment| {
-                    let ident = segment.ident.to_owned();
-                    let generic_args = match &segment.arguments {
-                        PathArguments::None => vec![],
-                        PathArguments::Parenthesized(_) => {
-                            return Err(Error::new(
-                                segment.arguments.span(),
-                                "parenthesized arguments are not allowed",
-                            ));
-                        }
-                        PathArguments::AngleBracketed(args) => {
-                            let generic_args: Vec<_> = args
-                                .args
-                                .iter()
-                                .map(|arg| -> syn::Result<_> {
-                                    match arg {
-                                        GenericArgument::Type(Type::Path(ty_path)) => {
-                                            type_var_fn::from_scoped_path(scope, &ty_path.path)
-                                        }
-                                        _ => Err(Error::new(
-                                            arg.span(),
-                                            "non-type argument is not allowed",
-                                        )),
-                                    }
-                                })
-                                .try_collect()?;
-                            generic_args
-                        }
-                    };
+            let segments = segment_var_fn::from_segments(scope, segments)?;
+            Ok(TraitVar { segments })
+        }
 
-                    Ok(SegmentVar {
-                        ident,
-                        generic_args,
-                    })
-                })
-                .try_collect()?;
-
-            Ok(TraitVar { path })
+        pub fn from_path_segments<S, I, P>(scope: &S, segments: I) -> syn::Result<TraitVar>
+        where
+            S: Scope,
+            I: IntoIterator<Item = P>,
+            P: Borrow<PathSegment>,
+        {
+            Ok(TraitVar {
+                segments: segment_var_fn::from_segments(scope, segments)?,
+            })
         }
     }
 
     mod trait_bounds_var_fn {
         use super::*;
 
-        pub fn from_scoped_paths<S>(scope: &S, paths: &[&Path]) -> syn::Result<TraitBoundsVar>
+        pub fn from_paths<S, I, P>(scope: &S, paths: I) -> syn::Result<TraitBoundsVar>
         where
             S: Scope,
+            I: IntoIterator<Item = P>,
+            P: Borrow<Path>,
         {
             let traits: BTreeSet<_> = paths
-                .iter()
-                .copied()
-                .map(|path| -> syn::Result<_> {
-                    let path: Vec<_> = path
-                        .segments
-                        .iter()
-                        .map(|segment| {
-                            let ident = segment.ident.to_owned();
-                            let generic_args = match &segment.arguments {
-                                PathArguments::None => vec![],
-                                PathArguments::Parenthesized(_) => {
-                                    return Err(Error::new(
-                                        segment.arguments.span(),
-                                        "parenthesized arguments are not allowed",
-                                    ));
-                                }
-                                PathArguments::AngleBracketed(args) => {
-                                    let generic_args: Vec<_> = args
-                                        .args
-                                        .iter()
-                                        .map(|arg| -> syn::Result<_> {
-                                            match arg {
-                                                GenericArgument::Type(Type::Path(ty_path)) => {
-                                                    type_var_fn::from_scoped_path(
-                                                        scope,
-                                                        &ty_path.path,
-                                                    )
-                                                }
-                                                _ => Err(Error::new(
-                                                    arg.span(),
-                                                    "non-type argument is not allowed",
-                                                )),
-                                            }
-                                        })
-                                        .try_collect()?;
-                                    generic_args
-                                }
-                            };
-
-                            Ok(SegmentVar {
-                                ident,
-                                generic_args,
-                            })
-                        })
-                        .try_collect()?;
-
-                    Ok(TraitVar { path })
-                })
+                .into_iter()
+                .map(|path| trait_var_fn::from_path(scope, path.borrow()))
                 .try_collect()?;
-
             let var = TraitBoundsVar { traits };
             Ok(var)
         }
 
-        pub fn from_scoped_type<S>(scope: &S, ty: &Type) -> syn::Result<TraitBoundsVar>
+        pub fn from_type<S>(scope: &S, ty: &Type) -> syn::Result<TraitBoundsVar>
         where
             S: Scope,
         {
             let paths = match ty {
                 Type::Infer(_) => vec![],
-                Type::Path(path) => vec![&path.path],
+                Type::Path(TypePath { qself: Some(_), .. }) => {
+                    return Err(Error::new(ty.span(), "not a trait"));
+                }
+                Type::Path(TypePath {
+                    path, qself: None, ..
+                }) => vec![path],
                 Type::TraitObject(tobj) => {
+                    if let Some(token) = tobj.dyn_token {
+                        return Err(Error::new(token.span(), "dyn token is not allowed"));
+                    }
+
                     let paths: Vec<_> = tobj
                         .bounds
                         .iter()
@@ -588,10 +627,10 @@ mod var_builder {
                 }
             };
 
-            from_scoped_paths(scope, &paths)
+            from_paths(scope, paths)
         }
 
-        pub fn from_scoped_type_param_bounds<S>(
+        pub fn from_type_param_bounds<S>(
             scope: &S,
             bounds: &Punctuated<TypeParamBound, syn::token::Add>,
         ) -> syn::Result<TraitBoundsVar>
@@ -601,13 +640,14 @@ mod var_builder {
             let paths: Vec<_> = bounds
                 .iter()
                 .map(|bound| match bound {
+                    // TODO: check modifier
                     TypeParamBound::Trait(trait_bound) => Ok(&trait_bound.path),
                     TypeParamBound::Lifetime(lifetime) => {
                         Err(Error::new(lifetime.span(), "lifetime is not allowed"))
                     }
                 })
                 .try_collect()?;
-            from_scoped_paths(scope, &paths)
+            from_paths(scope, paths)
         }
     }
 }
@@ -637,7 +677,9 @@ mod quantifier_dict {
 
         pub fn insert(&mut self, var_id: usize, value: Rc<TypeVar>, is_mut: bool) {
             let prev = self.map.insert(var_id, QuantifierState { is_mut, value });
-            assert!(matches!(prev, Some(_)), "please report bug");
+            if let Some(_) = prev {
+                panic!("please report bug: the type varaible is initialized more than once");
+            }
         }
 
         pub fn get<K>(&self, var_id: K) -> (bool, &TypeVar)

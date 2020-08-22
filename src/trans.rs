@@ -1,7 +1,7 @@
 use crate::{
     common::*,
     env::Env,
-    scope::{RootScope, Scope, SubScope},
+    scope::{RootScope, Scope},
     var::{TraitBoundsVar, TypeVar},
 };
 
@@ -263,10 +263,10 @@ fn translate_fn(
 
         // add trait bounds for initial quantifiers
         for (ident, bounds) in generic_args.iter().cloned() {
-            let predicate = scope.type_var_builder().from_exact_ident(ident);
+            let predicate = scope.type_var_builder().from_ident(ident);
             let bounds = scope
                 .trait_bounds_var_builder()
-                .from_scoped_type_param_bounds(&bounds)?;
+                .from_type_param_bounds(&bounds)?;
             scope.insert_trait_bounds(predicate, bounds);
         }
     }
@@ -281,8 +281,8 @@ fn translate_fn(
                 FnArg::Receiver(_) => None,
             })
             .map(|PatType { pat, ty, .. }| -> syn::Result<_> {
-                let type_ = scope.type_var_builder().from_scoped_pat(&**pat)?;
-                let trait_bounds = scope.trait_bounds_var_builder().from_scoped_type(&**ty)?;
+                let type_ = scope.type_var_builder().from_pat(&**pat)?;
+                let trait_bounds = scope.trait_bounds_var_builder().from_type(&**ty)?;
                 Ok((type_, trait_bounds))
             })
             .try_collect()?;
@@ -296,19 +296,17 @@ fn translate_fn(
     // translate output type to trait bound
     let output_trait_bounds = match output {
         ReturnType::Default => scope.trait_bounds_var_builder().empty(),
-        ReturnType::Type(_, ty) => scope.trait_bounds_var_builder().from_scoped_type(ty)?,
+        ReturnType::Type(_, ty) => scope.trait_bounds_var_builder().from_type(ty)?,
     };
 
     // translate block
-    {
+    let value = {
         let mut sub_env = env
             .create_mod(trait_op_name.clone())
-            .expect("please report bug");
+            .expect("please report bug: a mod is created twice");
 
-        let value = translate_block(&block, &mut scope, &mut sub_env)?;
-
-        todo!();
-    }
+        translate_block(&block, &mut scope, &mut sub_env)?
+    };
 
     // build trait and impls
     env.create_trait_by_name(trait_op_name.clone(), |env, builder| {
@@ -354,7 +352,7 @@ where
                                     _ => return Err(Error::new(local.span(), "not an identifier")),
                                 };
                                 let trait_bounds =
-                                    scope.trait_bounds_var_builder().from_scoped_type(ty)?;
+                                    scope.trait_bounds_var_builder().from_type(ty)?;
 
                                 (ident, Some(trait_bounds), is_mut)
                             }
@@ -373,7 +371,7 @@ where
                         let predicate = scope
                             .type_var_builder()
                             .from_quantifier(ident)
-                            .expect("please report bug");
+                            .expect("please report bug: not a valid quantifier");
                         scope.insert_trait_bounds(predicate, trait_bounds);
                     }
                 }
@@ -381,7 +379,10 @@ where
                     return Err(Error::new(item.span(), "in-block item is not allowed"))
                 }
                 Stmt::Expr(expr) => {
-                    assert!(matches!(output_value, None), "please report bug");
+                    assert!(
+                        matches!(output_value, None),
+                        "please report bug: output type is set more than once"
+                    );
                     output_value = Some(translate_expr(expr, scope, env)?);
                 }
                 Stmt::Semi(expr, _semi) => {
@@ -409,9 +410,37 @@ where
         Expr::Block(block) => translate_block_expr(block, scope, env),
         Expr::Call(call) => translate_call_expr(call, scope, env),
         Expr::Paren(paren) => translate_expr(&paren.expr, scope, env),
-        // Expr::Let(let_) => translate_let_expr(let_, scope, env),
-        _ => todo!("expr: {:?}", expr),
+        Expr::Assign(assign) => translate_assign_expr(&assign, scope, env),
+        _ => Err(Error::new(expr.span(), "invalid expression")),
     }
+}
+
+fn translate_assign_expr<S>(
+    assign: &ExprAssign,
+    scope: &mut S,
+    env: &mut Env,
+) -> syn::Result<Rc<TypeVar>>
+where
+    S: Scope,
+{
+    let ExprAssign { left, right, .. } = assign;
+    let quantifier_ident = match &**left {
+        Expr::Path(path) => match path.path.get_ident() {
+            Some(ident) => ident,
+            None => return Err(Error::new(path.span(), "not an identifier")),
+        },
+        _ => return Err(Error::new(left.span(), "not an identifier")),
+    };
+    let value = translate_expr(right, scope, env)?;
+
+    if !scope.assign_quantifier(quantifier_ident, value) {
+        return Err(Error::new(
+            quantifier_ident.span(),
+            "the variable is not declared or not mutable",
+        ));
+    }
+
+    todo!();
 }
 
 fn translate_match_expr<S>(
@@ -422,71 +451,34 @@ fn translate_match_expr<S>(
 where
     S: Scope,
 {
-    // let matched_ident = if let Expr::Path(path) = &*match_.expr {
-    //     path.path.get_ident().unwrap()
-    // } else {
-    //     todo!("match expr")
-    // };
+    let ExprMatch { expr, arms, .. } = match_;
 
-    // let match_ty = ident_to_type(matched_ident);
-    // let arg_idx = env
-    //     .args
-    //     .iter()
-    //     .position(|arg| arg == &match_ty)
-    //     .expect(&format!("Invalid match on {}", matched_ident));
+    let matched_type = match &**expr {
+        Expr::Path(path) => translate_path_expr(&path, scope, env)?,
+        _ => return Err(Error::new(expr.span(), "not a type")),
+    };
 
-    // match_
-    //     .arms
-    //     .iter()
-    //     .map(|arm| {
-    //         let (variant, fields) = translate_pat(&arm.pat);
+    let _: Vec<_> = match_
+        .arms
+        .iter()
+        .map(|arm| -> syn::Result<_> {
+            let Arm { pat, body, .. } = arm;
+            Ok(())
+        })
+        .try_collect()?;
 
-    //         let mut env = env.clone();
-    //         let field_names: Vec<_> = fields.iter().cloned().map(|(ident, _)| ident).collect();
-
-    //         // if args = [X, Y] and expr is match Y { Q(Z) => ... }
-    //         // then update args to be [X, Q<Z>]
-    //         let new_type: Type = syn::parse2(quote! {
-    //           #variant<#(#field_names),*>
-    //         })
-    //         .unwrap();
-    //         env.args[arg_idx] = new_type.clone();
-
-    //         // if quantifiers = [X, Y] then replace [Y] with [Z]
-    //         env.quantifiers = env
-    //             .quantifiers
-    //             .into_iter()
-    //             .filter(|ident| ident != matched_ident)
-    //             .collect();
-    //         env.quantifiers.extend(field_names);
-
-    //         // if bounds = {Y: Foo<X>} then rename to {Q<Z>: Foo<X>}
-    //         let bounds = env.bounds.remove(&ident_to_type(&matched_ident)).unwrap();
-    //         env.bounds.insert(new_type.clone(), bounds);
-
-    //         // add field bounds
-    //         for (ident, kind) in fields.iter() {
-    //             if let Some(kind) = kind_to_type(kind) {
-    //                 env.bounds.insert(ident_to_type(ident), vec![kind]);
-    //             }
-    //         }
-
-    //         // add substitution for Y -> Q<Z>
-    //         env.substitutions.insert(matched_ident.clone(), new_type);
-
-    //         translate_expr(&env, cur_kind, &arm.body)
-    //     })
-    //     .flatten()
-    //     .collect::<Vec<_>>()
     todo!();
 }
 
-fn translate_path_expr<S>(path: &ExprPath, scope: &mut S, env: &mut Env) -> syn::Result<Rc<TypeVar>>
+fn translate_path_expr<S>(
+    ExprPath { qself, path, .. }: &ExprPath,
+    scope: &mut S,
+    env: &mut Env,
+) -> syn::Result<Rc<TypeVar>>
 where
     S: Scope,
 {
-    let value = scope.type_var_builder().from_scoped_path(&path.path)?;
-    Ok(value)
+    scope.type_var_builder().from_path(qself.as_ref(), path)
 }
 
 fn translate_tuple_expr<S>(
@@ -497,15 +489,13 @@ fn translate_tuple_expr<S>(
 where
     S: Scope,
 {
-    // if tuple.elems.len() == 0 {
-    //     vec![FnOutput {
-    //         env: env.clone(),
-    //         output_ty: quote! { () },
-    //     }]
-    // } else {
-    //     todo!("tuple")
-    // }
-    todo!();
+    let types: Vec<_> = tuple
+        .elems
+        .iter()
+        .map(|expr| translate_expr(expr, scope, env))
+        .try_collect()?;
+    let var = scope.type_var_builder().make_tuple(&types);
+    Ok(var)
 }
 
 fn translate_binary_expr<S>(
@@ -579,7 +569,7 @@ where
     let ExprCall { func, args, .. } = call;
 
     let func_trait = match &**func {
-        Expr::Path(path) => scope.trait_var_builder().from_scoped_path(&path.path)?,
+        Expr::Path(path) => translate_path_expr(path, scope, env),
         _ => return Err(Error::new(func.span(), "not a trait")),
     };
     let arg_types: Vec<_> = args

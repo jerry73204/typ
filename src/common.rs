@@ -4,15 +4,16 @@ pub use proc_macro2::{Span, TokenStream};
 pub use quote::{format_ident, quote, quote_spanned, ToTokens};
 pub use radix_trie::{Trie, TrieKey};
 pub use std::{
-    borrow::Cow,
+    borrow::{Borrow, Cow},
     cell::{Cell, RefCell, RefMut},
     collections::{BTreeSet, HashMap, HashSet},
     convert::{TryFrom, TryInto},
+    fmt::Debug,
     hash::Hash,
     iter::{Extend, FromIterator, Sum},
     mem,
     ops::{Add, AddAssign, Deref},
-    rc::Rc,
+    rc::{Rc, Weak},
 };
 pub use syn::{
     parse::{Parse, ParseStream},
@@ -20,9 +21,10 @@ pub use syn::{
     spanned::Spanned,
     token,
     visit_mut::VisitMut,
-    BinOp, Block, Error, Expr, ExprBinary, ExprBlock, ExprCall, ExprIf, ExprLet, ExprMatch,
-    ExprPath, ExprTuple, Field, Fields, FnArg, GenericArgument, GenericParam, Ident, ImplItem,
-    ImplItemMethod, ImplItemType, Item, ItemEnum, ItemFn, ItemImpl, ItemStruct, Local, Pat,
-    PatIdent, PatType, Path, PathArguments, PathSegment, Receiver, ReturnType, Signature, Stmt,
-    TraitBound, TraitBoundModifier, Type, TypeParam, TypeParamBound, TypePath, Variant,
+    Arm, BinOp, Block, Error, Expr, ExprAssign, ExprBinary, ExprBlock, ExprCall, ExprIf, ExprLet,
+    ExprMatch, ExprPath, ExprTuple, Field, Fields, FnArg, GenericArgument, GenericParam, Ident,
+    ImplItem, ImplItemMethod, ImplItemType, Item, ItemEnum, ItemFn, ItemImpl, ItemStruct, Local,
+    Pat, PatIdent, PatPath, PatType, Path, PathArguments, PathSegment, QSelf, Receiver, ReturnType,
+    Signature, Stmt, TraitBound, TraitBoundModifier, Type, TypeParam, TypeParamBound, TypeParen,
+    TypePath, TypeTuple, Variant,
 };
