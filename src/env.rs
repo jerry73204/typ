@@ -25,31 +25,31 @@ mod env {
 
         pub fn create_trait_by_name<F, T>(&mut self, name: Ident, f: F) -> T
         where
-            F: FnOnce(&mut TraitBuilder) -> T,
+            F: FnOnce(&mut Self, &mut TraitBuilder) -> T,
         {
             let mut builder = TraitBuilder::new(name.clone());
-            let ret = f(&mut builder);
+            let ret = f(self, &mut builder);
             let trait_def = builder.build();
             self.traits.insert(name, trait_def);
             ret
         }
 
-        pub fn create_trait_by_prefix<F, T>(&mut self, prefix: String, f: F) -> T
+        pub fn create_trait_by_prefix<F, T>(&mut self, prefix: &str, f: F) -> T
         where
-            F: FnOnce(&Ident, &mut TraitBuilder) -> T,
+            F: FnOnce(&mut Self, &Ident, &mut TraitBuilder) -> T,
         {
             let count = {
                 let prefixes = &mut self.trait_name_prefixes;
-                if let Some(_) = prefixes.subtrie_mut(&prefix) {
+                if let Some(_) = prefixes.subtrie_mut(prefix) {
                     panic!("the trait name cannot proper prefix of existing trait names");
                 }
-                prefixes.map_with_default(prefix.clone(), |count| *count += 1, 0);
-                *prefixes.get(&prefix).unwrap()
+                prefixes.map_with_default(prefix.to_string(), |count| *count += 1, 0);
+                *prefixes.get(prefix).unwrap()
             };
 
             let ident = format_ident!("{}{}", prefix, count);
             let mut builder = TraitBuilder::new(ident.clone());
-            let ret = f(&ident, &mut builder);
+            let ret = f(self, &ident, &mut builder);
             let trait_def = builder.build();
             self.traits.insert(ident, trait_def);
             ret

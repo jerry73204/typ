@@ -1,6 +1,6 @@
 use crate::{
     common::*,
-    var::{TraitBoundsVar, TypeVar},
+    var::{SegmentVar, TraitBoundsVar, TraitVar, TypeVar},
 };
 pub use quantifier_dict::*;
 pub use scope::*;
@@ -79,13 +79,23 @@ mod scope {
             TypeVarBuilder::new(self)
         }
 
-        fn trait_bounds_var_builder<'a>(&'a mut self) -> TraitVarBuilder<'a, Self> {
+        fn trait_var_builder<'a>(&'a mut self) -> TraitVarBuilder<'a, Self> {
             TraitVarBuilder::new(self)
+        }
+
+        fn trait_bounds_var_builder<'a>(&'a mut self) -> TraitBoundsVarBuilder<'a, Self> {
+            TraitBoundsVarBuilder::new(self)
         }
 
         fn add_type_var(&mut self, var: TypeVar) -> Rc<TypeVar> {
             let var = Rc::new(var);
             self.state_mut().type_vars.insert(var.clone());
+            var
+        }
+
+        fn add_trait_var(&mut self, var: TraitVar) -> Rc<TraitVar> {
+            let var = Rc::new(var);
+            self.state_mut().trait_vars.insert(var.clone());
             var
         }
 
@@ -222,6 +232,7 @@ mod scope {
         trait_bounds: TraitBoundDict,
         quantifiers: QuantifierDict,
         type_vars: HashSet<Rc<TypeVar>>,
+        trait_vars: HashSet<Rc<TraitVar>>,
         trait_bounds_vars: HashSet<Rc<TraitBoundsVar>>,
     }
 
@@ -232,6 +243,7 @@ mod scope {
                 trait_bounds: TraitBoundDict::new(),
                 quantifiers: QuantifierDict::new(),
                 type_vars: HashSet::new(),
+                trait_vars: HashSet::new(),
                 trait_bounds_vars: HashSet::new(),
             }
         }
@@ -262,7 +274,10 @@ mod var_builder {
         where
             S: Scope,
         {
-            let var = TypeVar::Path(vec![(ident.to_owned(), vec![])]);
+            let var = TypeVar::Path(vec![SegmentVar {
+                ident: ident.to_owned(),
+                generic_args: vec![],
+            }]);
             self.scope.add_type_var(var)
         }
 
@@ -308,14 +323,31 @@ mod var_builder {
             Self { scope }
         }
 
+        pub fn from_scoped_path(&mut self, path: &Path) -> syn::Result<Rc<TraitVar>> {
+            let var = trait_var_fn::from_scoped_path(self.scope, path)?;
+            Ok(self.scope.add_trait_var(var))
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct TraitBoundsVarBuilder<'a, S>
+    where
+        S: Scope,
+    {
+        scope: &'a mut S,
+    }
+
+    impl<'a, S> TraitBoundsVarBuilder<'a, S>
+    where
+        S: Scope,
+    {
+        pub fn new(scope: &'a mut S) -> Self {
+            Self { scope }
+        }
+
         pub fn empty(&mut self) -> Rc<TraitBoundsVar> {
             let var = TraitBoundsVar::empty();
             self.scope.add_trait_bounds_var(var)
-        }
-
-        pub fn from_scoped_path(&mut self, path: &Path) -> syn::Result<Rc<TraitBoundsVar>> {
-            let var = trait_bounds_var_fn::from_scoped_path(self.scope, path)?;
-            Ok(self.scope.add_trait_bounds_var(var))
         }
 
         pub fn from_scoped_paths(&mut self, paths: &[&Path]) -> syn::Result<Rc<TraitBoundsVar>> {
@@ -385,7 +417,10 @@ mod var_builder {
                         }
                     };
 
-                    Ok((ident, generic_args))
+                    Ok(SegmentVar {
+                        ident,
+                        generic_args,
+                    })
                 })
                 .try_collect()?;
 
@@ -402,7 +437,10 @@ mod var_builder {
                     let ident = &pat_ident.ident;
                     let var = match scope.get_var_id(ident) {
                         Some(var_id) => TypeVar::Var(var_id),
-                        None => TypeVar::Path(vec![(ident.to_owned(), vec![])]),
+                        None => TypeVar::Path(vec![SegmentVar {
+                            ident: ident.to_owned(),
+                            generic_args: vec![],
+                        }]),
                     };
                     Ok(var)
                 }
@@ -412,14 +450,14 @@ mod var_builder {
         }
     }
 
-    mod trait_bounds_var_fn {
+    mod trait_var_fn {
         use super::*;
 
-        pub fn from_scoped_path<S>(scope: &S, path: &Path) -> syn::Result<TraitBoundsVar>
+        pub fn from_scoped_path<S>(scope: &S, path: &Path) -> syn::Result<TraitVar>
         where
             S: Scope,
         {
-            let segments: Vec<_> = path
+            let path: Vec<_> = path
                 .segments
                 .iter()
                 .map(|segment| {
@@ -452,24 +490,29 @@ mod var_builder {
                         }
                     };
 
-                    Ok((ident, generic_args))
+                    Ok(SegmentVar {
+                        ident,
+                        generic_args,
+                    })
                 })
                 .try_collect()?;
 
-            let paths: BTreeSet<_> = vec![segments].into_iter().collect();
-            let var = TraitBoundsVar { paths };
-            Ok(var)
+            Ok(TraitVar { path })
         }
+    }
+
+    mod trait_bounds_var_fn {
+        use super::*;
 
         pub fn from_scoped_paths<S>(scope: &S, paths: &[&Path]) -> syn::Result<TraitBoundsVar>
         where
             S: Scope,
         {
-            let paths: BTreeSet<_> = paths
+            let traits: BTreeSet<_> = paths
                 .iter()
                 .copied()
                 .map(|path| -> syn::Result<_> {
-                    let segments: Vec<_> = path
+                    let path: Vec<_> = path
                         .segments
                         .iter()
                         .map(|segment| {
@@ -505,15 +548,18 @@ mod var_builder {
                                 }
                             };
 
-                            Ok((ident, generic_args))
+                            Ok(SegmentVar {
+                                ident,
+                                generic_args,
+                            })
                         })
                         .try_collect()?;
 
-                    Ok(segments)
+                    Ok(TraitVar { path })
                 })
                 .try_collect()?;
 
-            let var = TraitBoundsVar { paths };
+            let var = TraitBoundsVar { traits };
             Ok(var)
         }
 

@@ -311,14 +311,14 @@ fn translate_fn(
     }
 
     // build trait and impls
-    env.create_trait_by_name(trait_op_name.clone(), |builder| {
+    env.create_trait_by_name(trait_op_name.clone(), |env, builder| {
         todo!();
     });
 
     todo!();
 }
 
-fn translate_block<S>(block: &Block, scope: &mut S, env: &mut Env) -> syn::Result<TypeVar>
+fn translate_block<S>(block: &Block, scope: &mut S, env: &mut Env) -> syn::Result<Rc<TypeVar>>
 where
     S: Scope,
 {
@@ -368,7 +368,7 @@ where
                     let value = translate_expr(expr, scope, env)?;
 
                     // register the local quantifier
-                    scope.insert_quantifier(ident.to_owned(), value, false);
+                    scope.insert_quantifier(ident.to_owned(), value, is_mut);
                     if let Some(trait_bounds) = trait_bounds_opt {
                         let predicate = scope
                             .type_var_builder()
@@ -485,17 +485,8 @@ fn translate_path_expr<S>(path: &ExprPath, scope: &mut S, env: &mut Env) -> syn:
 where
     S: Scope,
 {
-    // let ident = path.path.get_ident().unwrap();
-    // let ty = env
-    //     .substitutions
-    //     .get(&ident)
-    //     .cloned()
-    //     .unwrap_or_else(|| ident_to_type(ident));
-    // vec![FnOutput {
-    //     env: env.clone(),
-    //     output_ty: quote! { #ty },
-    // }]
-    todo!();
+    let value = scope.type_var_builder().from_scoped_path(&path.path)?;
+    Ok(value)
 }
 
 fn translate_tuple_expr<S>(
@@ -547,12 +538,17 @@ fn translate_if_expr<S>(if_: &ExprIf, scope: &mut S, env: &mut Env) -> syn::Resu
 where
     S: Scope,
 {
-    // let ExprIf {
-    //     cond,
-    //     then_branch,
-    //     else_branch,
-    //     ..
-    // } = if_;
+    env.create_trait_by_prefix("If", |env, name, builder| {
+        let ExprIf {
+            cond,
+            then_branch,
+            else_branch,
+            ..
+        } = if_;
+
+        let cond_value = translate_expr(&*cond, scope, env);
+    });
+
     // let (_else_token, else_) = else_branch
     //     .as_ref()
     //     .expect("If expression must have an 'else'");
@@ -571,79 +567,56 @@ fn translate_block_expr<S>(
 where
     S: Scope,
 {
-    // block.block.stmts.iter().fold(env.clone(), |env, stmt| {
-    //     // TODO
-    //     match stmt {
-    //         Stmt::Local(local) => {}
-    //         Stmt::Item(item) => {}
-    //         Stmt::Expr(expr) => {}
-    //         Stmt::Semi(expr, _semi) => {}
-    //     };
-    //     env
-    // });
+    // solve unlimited recursion
     todo!();
+    // translate_block(&block.block, scope, env)
 }
 
 fn translate_call_expr<S>(call: &ExprCall, scope: &mut S, env: &mut Env) -> syn::Result<Rc<TypeVar>>
 where
     S: Scope,
 {
-    // let ExprCall { func, args, .. } = call;
+    let ExprCall { func, args, .. } = call;
 
-    // let func_ident = if let Expr::Path(path) = &**func {
-    //     path.path.get_ident().unwrap()
-    // } else {
-    //     todo!("func ident")
-    // };
+    let func_trait = match &**func {
+        Expr::Path(path) => scope.trait_var_builder().from_scoped_path(&path.path)?,
+        _ => return Err(Error::new(func.span(), "not a trait")),
+    };
+    let arg_types: Vec<_> = args
+        .iter()
+        .map(|arg| translate_expr(arg, scope, env))
+        .try_collect()?;
 
-    // let args_vec: Vec<_> = args
-    //     .iter()
-    //     .map(|arg| translate_expr(env, cur_kind, arg))
-    //     .collect();
-
-    // FnOutput::merge(args_vec, |mut env, args| {
-    //     let first_arg: Type = syn::parse2(args[0].clone()).unwrap();
-    //     let bounds = env
-    //         .bounds
-    //         .entry(first_arg.clone())
-    //         .or_insert_with(|| Vec::new());
-    //     let compute_ident = Ident::new(&format!("Compute{}", func_ident), Span::call_site());
-    //     let remaining_args = &args[1..];
-    //     bounds.push(syn::parse2(quote! { #compute_ident<#(#remaining_args),*> }).unwrap());
-
-    //     let output_ty = quote! { #func_ident<#(#args),*> };
-    //     FnOutput { output_ty, env }
-    // })
     todo!();
 }
 
-fn ty_to_trait_bounds<S>(ty: &Type) -> syn::Result<Vec<&Path>>
-where
-    S: Scope,
-{
-    let bounds = match ty {
-        Type::Infer(_) => vec![],
-        Type::Path(path) => vec![&path.path],
-        Type::TraitObject(tobj) => {
-            let paths = tobj
-                .bounds
-                .iter()
-                .map(|param_bound| match param_bound {
-                    TypeParamBound::Trait(bound) => Ok(&bound.path),
-                    TypeParamBound::Lifetime(lifetime) => {
-                        Err(Error::new(lifetime.span(), "lifetime is not allowed"))
-                    }
-                })
-                .try_collect()?;
-            paths
-        }
-        _ => {
-            return Err(Error::new(ty.span(), "not a trait bound"));
-        }
-    };
+// fn ty_to_trait_bounds<S>(ty: &Type) -> syn::Result<Vec<&Path>>
+// where
+//     S: Scope,
+// {
+//     let bounds = match ty {
+//         Type::Infer(_) => vec![],
+//         Type::Path(path) => vec![&path.path],
+//         Type::TraitObject(tobj) => {
+//             let paths = tobj
+//                 .bounds
+//                 .iter()
+//                 .map(|param_bound| match param_bound {
+//                     TypeParamBound::Trait(bound) => Ok(&bound.path),
+//                     TypeParamBound::Lifetime(lifetime) => {
+//                         Err(Error::new(lifetime.span(), "lifetime is not allowed"))
+//                     }
+//                 })
+//                 .try_collect()?;
+//             paths
+//         }
+//         _ => {
+//             return Err(Error::new(ty.span(), "not a trait bound"));
+//         }
+//     };
 
-    Ok(bounds)
-}
+//     Ok(bounds)
+// }
 
 #[cfg(test)]
 mod tests {
