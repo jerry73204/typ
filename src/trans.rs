@@ -1,9 +1,4 @@
-use crate::{
-    common::*,
-    env::Env,
-    scope::Scope,
-    var::{Scoped, SegmentVar, TraitBoundsVar, TraitVar, TypeVar},
-};
+use crate::{common::*, env::Env, scope::Scope};
 
 pub fn translate_items(items: &[Item]) -> syn::Result<TokenStream> {
     let tokens_vec: Vec<_> = items
@@ -38,7 +33,7 @@ fn translate_struct(_struct_: &ItemStruct) -> syn::Result<TokenStream> {
     todo!();
 }
 
-fn translate_enum(enum_: &ItemEnum) -> syn::Result<TokenStream> {
+fn translate_enum(_enum_: &ItemEnum) -> syn::Result<TokenStream> {
     todo!();
     // let ItemEnum {
     //     vis,
@@ -179,20 +174,20 @@ fn translate_impl(impl_: &ItemImpl) -> syn::Result<TokenStream> {
         .iter()
         .map(|item| -> syn::Result<_> {
             match item {
-                ImplItem::Type(type_) => {
-                    let ImplItemType {
-                        ident: type_name,
-                        ty,
-                        ..
-                    } = type_;
-                    todo!();
-                }
+                // ImplItem::Type(type_) => {
+                //     let ImplItemType {
+                //         ident: type_name,
+                //         ty,
+                //         ..
+                //     } = type_;
+                //     todo!();
+                // }
                 ImplItem::Method(method) => {
                     let ImplItemMethod { sig, block, .. } = method;
                     translate_fn(sig, block, Some(trait_path))?
                 }
                 _ => {
-                    return Err(Error::new(item.span(), "unsupported item kind"));
+                    return Err(Error::new(item.span(), "unsupported item"));
                 }
             };
 
@@ -258,7 +253,7 @@ fn translate_fn(
 
         // create initial quantifiers
         for (ident, _paths) in generic_args.iter().cloned() {
-            scope.insert_initial_quantifier(ident.to_owned());
+            scope.insert_free_quantifier(ident.to_owned())?;
         }
 
         // add trait bounds for initial quantifiers
@@ -365,7 +360,9 @@ where
                     let value = translate_expr(expr, scope, env)?;
 
                     // register the local quantifier
-                    scope.insert_quantifier(ident.to_owned(), value, is_mut);
+                    scope.insert_bounded_quantifier(ident.to_owned(), value, is_mut);
+
+                    // insert trait bounds
                     if let Some(trait_bounds) = trait_bounds_opt {
                         let predicate = scope
                             .type_var_builder()
@@ -393,7 +390,7 @@ where
         Ok(())
     })?;
 
-    todo!();
+    Ok(output_value.unwrap_or_else(|| quote! { () }))
 }
 
 fn translate_expr(expr: &Expr, scope: &mut Scope, env: &mut Env) -> syn::Result<TokenStream>
@@ -409,7 +406,7 @@ where
         Expr::Call(call) => translate_call_expr(call, scope, env),
         Expr::Paren(paren) => translate_expr(&paren.expr, scope, env),
         Expr::Assign(assign) => translate_assign_expr(&assign, scope, env),
-        _ => Err(Error::new(expr.span(), "invalid expression")),
+        _ => Err(Error::new(expr.span(), "unsupported expression")),
     }
 }
 
@@ -430,14 +427,8 @@ where
     };
     let value = translate_expr(right, scope, env)?;
 
-    if !scope.assign_quantifier(quantifier_ident, value) {
-        return Err(Error::new(
-            quantifier_ident.span(),
-            "the variable is not declared or not mutable",
-        ));
-    }
-
-    todo!();
+    scope.assign_quantifier(quantifier_ident, value)?;
+    Ok(quote! { () })
 }
 
 fn translate_match_expr(
@@ -454,13 +445,18 @@ where
         _ => return Err(Error::new(expr.span(), "not a type")),
     };
 
-    let _: Vec<_> = match_
-        .arms
+    let _: Vec<_> = arms
         .iter()
         .map(|arm| -> syn::Result<_> {
             let Arm { pat, body, .. } = arm;
+            let mut branched_scope = scope.clone();
 
-            let branched_scope = scope.clone();
+            let ty = scope.type_var_builder().from_pat(pat)?;
+            let value = translate_expr(body, &mut branched_scope, env)?;
+
+            env.create_trait_by_prefix("Match", |env, trait_name, builder| {
+                todo!();
+            });
 
             Ok(())
         })
@@ -571,9 +567,7 @@ fn translate_block_expr(
     scope: &mut Scope,
     env: &mut Env,
 ) -> syn::Result<TokenStream> {
-    // solve unlimited recursion
-    // translate_block(&block.block, scope, env)
-    todo!();
+    translate_block(&block.block, scope, env)
 }
 
 fn translate_call_expr(
@@ -639,7 +633,7 @@ where
 //     Ok(bounds)
 // }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-}
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+// }

@@ -11,7 +11,7 @@ impl ToTokens for Scoped<&TypeVar> {
         let Self { scope, var: ty } = self;
 
         let expanded = match ty {
-            TypeVar::Var { id } => scope.borrow().get_quantifier(id).unwrap().value.to_owned(),
+            TypeVar::Var { id } => scope.borrow().get_variable(id).unwrap().value.to_owned(),
             TypeVar::Path { segments } => {
                 let segments = Scoped {
                     scope: scope.clone(),

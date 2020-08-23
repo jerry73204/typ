@@ -54,23 +54,49 @@ mod scope {
             None
         }
 
-        pub fn insert_initial_quantifier(&mut self, ident: Ident) {
-            let value = self.type_var_builder().from_ident(&ident);
-            self.insert_quantifier(ident, quote! { #value }, false);
+        pub fn insert_free_quantifier(&mut self, ident: Ident) -> syn::Result<()> {
+            // check if the identifier is already taken
+            if self.state_mut().free_quantifiers.contains_key(&ident) {
+                return Err(Error::new(
+                    ident.span(),
+                    "the name of free quantifier is already taken",
+                ));
+            }
+
+            // create a new variable
+            let var_id = self.state_mut().create_var_id();
+            self.state.borrow_mut().variables.insert(
+                var_id,
+                Variable {
+                    id: var_id,
+                    value: quote! { #ident },
+                    is_mut: false,
+                },
+            );
+
+            self.state_mut().free_quantifiers.insert(ident, var_id);
+            Ok(())
         }
 
-        pub fn insert_quantifier(&mut self, ident: Ident, value: TokenStream, is_mut: bool) {
-            // obtain a new variable id
+        pub fn insert_bounded_quantifier(
+            &mut self,
+            ident: Ident,
+            value: TokenStream,
+            is_mut: bool,
+        ) {
+            // create a new variable
             let var_id = self.state_mut().create_var_id();
-            self.local_quantifiers_mut().insert(ident, var_id);
-            self.state.borrow_mut().quantifiers.insert(
+            self.state.borrow_mut().variables.insert(
                 var_id,
-                Quantifier {
+                Variable {
                     id: var_id,
                     value,
                     is_mut,
                 },
             );
+
+            // add the identifier to current scop
+            self.local_quantifiers_mut().insert(ident, var_id);
         }
 
         pub fn insert_trait_bounds(&mut self, predicate: TokenStream, bounds: TokenStream) {
@@ -80,9 +106,7 @@ mod scope {
                 .push((predicate, bounds));
         }
 
-        pub fn assign_quantifier(&mut self, ident: &Ident, value: TokenStream) -> bool {
-            // let state = self.state();
-
+        pub fn assign_quantifier(&mut self, ident: &Ident, value: TokenStream) -> syn::Result<()> {
             let opt = self
                 .state()
                 .bounded_quantifiers
@@ -101,7 +125,7 @@ mod scope {
                     // check if the quantifier is mutable
                     let is_mut = self
                         .state()
-                        .quantifiers
+                        .variables
                         .get(&prev_var_id)
                         .expect("please report bug: missing quantifier value")
                         .is_mut;
@@ -111,9 +135,9 @@ mod scope {
 
                         // create a new quantifier instance
                         let new_var_id = state.create_var_id();
-                        state.quantifiers.insert(
+                        state.variables.insert(
                             new_var_id,
-                            Quantifier {
+                            Variable {
                                 id: new_var_id,
                                 value,
                                 is_mut: true,
@@ -123,12 +147,12 @@ mod scope {
                         // replace the id that the identifier points to
                         state.bounded_quantifiers[index].insert(ident.to_owned(), new_var_id);
 
-                        return true;
+                        Ok(())
                     } else {
-                        return false;
+                        Err(Error::new(ident.span(), "the quantifier is not mutable"))
                     }
                 }
-                None => false,
+                None => Err(Error::new(ident.span(), "the quantifier is not defined")),
             }
         }
 
@@ -144,7 +168,7 @@ mod scope {
             TraitBoundsVarBuilder::new(self)
         }
 
-        pub fn visible_quantifiers(&self) -> HashMap<Ident, Quantifier> {
+        pub fn visible_quantifiers(&self) -> HashMap<Ident, Variable> {
             let (_shadowed, found) = self.state().bounded_quantifiers.iter().rev().fold(
                 (HashSet::new(), HashMap::new()),
                 |mut state, quantifiers| {
@@ -155,7 +179,7 @@ mod scope {
                             shadowed.get_or_insert_with(ident, |_| {
                                 let quantifier = self
                                     .state()
-                                    .quantifiers
+                                    .variables
                                     .get(var_id)
                                     .expect("please report bug: missing quantifier value")
                                     .to_owned();
@@ -184,7 +208,8 @@ mod scope {
     pub struct ScopeState {
         var_counter: usize,
         trait_bounds: Vec<(TokenStream, TokenStream)>,
-        quantifiers: HashMap<usize, Quantifier>,
+        variables: HashMap<usize, Variable>,
+        free_quantifiers: IndexMap<Ident, usize>,
         bounded_quantifiers: Vec<HashMap<Ident, usize>>,
     }
 
@@ -193,13 +218,14 @@ mod scope {
             Self {
                 var_counter: 0,
                 trait_bounds: vec![],
-                quantifiers: HashMap::new(),
+                variables: HashMap::new(),
+                free_quantifiers: IndexMap::new(),
                 bounded_quantifiers: vec![HashMap::new()],
             }
         }
 
-        pub fn get_quantifier(&self, id: &usize) -> Option<&Quantifier> {
-            self.quantifiers.get(id)
+        pub fn get_variable(&self, id: &usize) -> Option<&Variable> {
+            self.variables.get(id)
         }
 
         pub fn create_var_id(&mut self) -> usize {
@@ -228,7 +254,7 @@ mod scope {
     }
 
     #[derive(Debug, Clone)]
-    pub struct Quantifier {
+    pub struct Variable {
         pub id: usize,
         pub is_mut: bool,
         pub value: TokenStream,

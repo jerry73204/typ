@@ -82,12 +82,12 @@ mod env {
 
 #[derive(Debug)]
 pub struct ImplBuilder {
-    generics_opt: Option<LinkedHashSet<Ident>>,
+    generics_opt: Option<IndexSet<Ident>>,
     associated_types: HashMap<Ident, TokenStream>,
 }
 
 impl ImplBuilder {
-    pub fn set_generics(&mut self, generics: LinkedHashSet<Ident>) {
+    pub fn set_generics(&mut self, generics: IndexSet<Ident>) {
         self.generics_opt = Some(generics);
     }
 
@@ -129,12 +129,12 @@ pub struct ImplDef {
 #[derive(Debug)]
 pub struct TraitBuilder {
     ident: Ident,
-    generics_opt: Option<LinkedHashSet<Ident>>,
+    generics_opt: Option<IndexSet<Ident>>,
     associated_types: HashMap<Ident, TokenStream>,
 }
 
 impl TraitBuilder {
-    pub fn new(ident: Ident) -> Self {
+    fn new(ident: Ident) -> Self {
         Self {
             ident,
             associated_types: HashMap::new(),
@@ -142,7 +142,7 @@ impl TraitBuilder {
         }
     }
 
-    pub fn set_generics(&mut self, generics: LinkedHashSet<Ident>) {
+    pub fn set_generics(&mut self, generics: IndexSet<Ident>) {
         self.generics_opt = Some(generics);
     }
 

@@ -1,6 +1,6 @@
 pub use by_address::ByAddress;
+pub use indexmap::{IndexMap, IndexSet};
 pub use itertools::Itertools;
-pub use linked_hash_set::LinkedHashSet;
 pub use proc_macro2::{Span, TokenStream};
 pub use quote::{format_ident, quote, quote_spanned, ToTokens};
 pub use radix_trie::{Trie, TrieKey};
