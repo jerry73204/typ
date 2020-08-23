@@ -6,43 +6,174 @@ pub struct Scoped<T> {
     pub var: T,
 }
 
-impl ToTokens for Scoped<SegmentVar> {
+impl ToTokens for Scoped<&TypeVar> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        // let Self { segments } = self;
+        let Self { scope, var: ty } = self;
 
-        // let segment_tokens: Vec<_> = segments
-        //     .iter()
-        //     .map(|(ident, generic_args)| {
-        //         if generic_args.is_empty() {
-        //             quote! {
-        //                 #ident
-        //             }
-        //         } else {
-        //             quote! {
-        //                 #ident<#(#generic_args),*>
-        //             }
-        //         }
-        //     })
-        //     .collect();
+        let expanded = match ty {
+            TypeVar::Var { id } => scope.borrow().get_quantifier(id).unwrap().value.to_owned(),
+            TypeVar::Path { segments } => {
+                let segments = Scoped {
+                    scope: scope.clone(),
+                    var: segments,
+                };
+                quote! { #segments }
+            }
+            TypeVar::QSelf {
+                ty,
+                trait_,
+                associated,
+            } => {
+                let ty = Scoped {
+                    scope: scope.clone(),
+                    var: &**ty,
+                };
+                let trait_ = Scoped {
+                    scope: scope.clone(),
+                    var: trait_,
+                };
+                let associated_path = Scoped {
+                    scope: scope.clone(),
+                    var: associated,
+                };
 
-        // let expanded = quote! {
-        //     #(#segment_tokens)::*
-        // };
+                if associated.is_empty() {
+                    quote! {
+                        < #ty as #trait_ >
+                    }
+                } else {
+                    quote! {
+                        < #ty as #trait_ > :: #associated_path
+                    }
+                }
+            }
+            TypeVar::Tuple { types } => {
+                let types = types.iter().map(|ty| Scoped {
+                    scope: scope.clone(),
+                    var: ty,
+                });
+                quote! { ( #(#types),* ) }
+            }
+        };
 
-        // tokens.extend(expanded);
-        todo!();
+        tokens.extend(expanded);
     }
 }
 
 impl ToTokens for Scoped<TypeVar> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        todo!();
+        Scoped {
+            scope: self.scope.clone(),
+            var: &self.var,
+        }
+        .to_tokens(tokens)
+    }
+}
+
+impl ToTokens for Scoped<&TraitVar> {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let Scoped {
+            scope,
+            var: TraitVar { segments },
+        } = self;
+
+        let segments = Scoped {
+            scope: scope.clone(),
+            var: segments,
+        };
+        let expanded = quote! { #segments };
+        tokens.extend(expanded);
     }
 }
 
 impl ToTokens for Scoped<TraitVar> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        todo!();
+        Scoped {
+            scope: self.scope.clone(),
+            var: &self.var,
+        }
+        .to_tokens(tokens)
+    }
+}
+
+impl ToTokens for Scoped<&Vec<SegmentVar>> {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let Self {
+            scope,
+            var: segments,
+        } = self;
+
+        let segments: Vec<_> = segments
+            .iter()
+            .map(
+                |SegmentVar {
+                     ident,
+                     generic_args,
+                 }| {
+                    let args: Vec<_> = generic_args
+                        .iter()
+                        .map(|arg| {
+                            let arg = Scoped {
+                                scope: scope.clone(),
+                                var: arg,
+                            };
+                            quote! { #arg }
+                        })
+                        .collect();
+
+                    if args.is_empty() {
+                        quote! { #ident }
+                    } else {
+                        quote! { #ident < #(#args),* > }
+                    }
+                },
+            )
+            .collect();
+
+        let expanded = quote! { #(#segments)::* };
+        tokens.extend(expanded);
+    }
+}
+
+impl ToTokens for Scoped<Vec<SegmentVar>> {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        Scoped {
+            scope: self.scope.clone(),
+            var: &self.var,
+        }
+        .to_tokens(tokens)
+    }
+}
+
+impl ToTokens for Scoped<&TraitBoundsVar> {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let Scoped {
+            scope,
+            var: TraitBoundsVar { traits },
+        } = self;
+
+        let traits: Vec<_> = traits
+            .iter()
+            .map(|trait_| {
+                let trait_ = Scoped {
+                    scope: scope.clone(),
+                    var: trait_,
+                };
+                quote! { #trait_ }
+            })
+            .collect();
+        let expanded = quote! { #(#traits)+* };
+        tokens.extend(expanded);
+    }
+}
+
+impl ToTokens for Scoped<TraitBoundsVar> {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        Scoped {
+            scope: self.scope.clone(),
+            var: &self.var,
+        }
+        .to_tokens(tokens)
     }
 }
 

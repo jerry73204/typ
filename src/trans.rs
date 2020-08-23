@@ -1,7 +1,7 @@
 use crate::{
     common::*,
     env::Env,
-    scope::{RootScope, Scope},
+    scope::Scope,
     var::{Scoped, SegmentVar, TraitBoundsVar, TraitVar, TypeVar},
 };
 
@@ -219,7 +219,7 @@ fn translate_fn(
 
     // create root scope and env
     let mut env = Env::new();
-    let mut scope = RootScope::new();
+    let mut scope = Scope::new();
 
     // TODO
     // match (self_trait_opt, inputs.first()) {
@@ -267,7 +267,7 @@ fn translate_fn(
             let bounds = scope
                 .trait_bounds_var_builder()
                 .from_type_param_bounds(&bounds)?;
-            scope.insert_trait_bounds(predicate, bounds);
+            scope.insert_trait_bounds(quote! { #predicate }, quote! { #bounds });
         }
     }
 
@@ -289,7 +289,7 @@ fn translate_fn(
 
         // insert trait bounds
         for (predicate, bounds) in fn_args {
-            scope.insert_trait_bounds(predicate, bounds);
+            scope.insert_trait_bounds(quote! { #predicate }, quote! { #bounds });
         }
     }
 
@@ -316,9 +316,8 @@ fn translate_fn(
     todo!();
 }
 
-fn translate_block<S>(block: &Block, scope: &mut S, env: &mut Env) -> syn::Result<Scoped<TypeVar>>
+fn translate_block(block: &Block, scope: &mut Scope, env: &mut Env) -> syn::Result<TokenStream>
 where
-    S: Scope,
 {
     let mut output_value = None;
 
@@ -372,7 +371,7 @@ where
                             .type_var_builder()
                             .from_quantifier(ident)
                             .expect("please report bug: not a valid quantifier");
-                        scope.insert_trait_bounds(predicate, trait_bounds);
+                        scope.insert_trait_bounds(quote! { #predicate }, quote! { #trait_bounds });
                     }
                 }
                 Stmt::Item(item) => {
@@ -397,9 +396,8 @@ where
     todo!();
 }
 
-fn translate_expr<S>(expr: &Expr, scope: &mut S, env: &mut Env) -> syn::Result<Scoped<TypeVar>>
+fn translate_expr(expr: &Expr, scope: &mut Scope, env: &mut Env) -> syn::Result<TokenStream>
 where
-    S: Scope,
 {
     match expr {
         Expr::Match(match_) => translate_match_expr(match_, scope, env),
@@ -415,13 +413,12 @@ where
     }
 }
 
-fn translate_assign_expr<S>(
+fn translate_assign_expr(
     assign: &ExprAssign,
-    scope: &mut S,
+    scope: &mut Scope,
     env: &mut Env,
-) -> syn::Result<Scoped<TypeVar>>
+) -> syn::Result<TokenStream>
 where
-    S: Scope,
 {
     let ExprAssign { left, right, .. } = assign;
     let quantifier_ident = match &**left {
@@ -443,13 +440,12 @@ where
     todo!();
 }
 
-fn translate_match_expr<S>(
+fn translate_match_expr(
     match_: &ExprMatch,
-    scope: &mut S,
+    scope: &mut Scope,
     env: &mut Env,
-) -> syn::Result<Scoped<TypeVar>>
+) -> syn::Result<TokenStream>
 where
-    S: Scope,
 {
     let ExprMatch { expr, arms, .. } = match_;
 
@@ -464,7 +460,7 @@ where
         .map(|arm| -> syn::Result<_> {
             let Arm { pat, body, .. } = arm;
 
-            let branched_scope = scope.branch();
+            let branched_scope = scope.clone();
 
             Ok(())
         })
@@ -473,108 +469,81 @@ where
     todo!();
 }
 
-fn translate_path_expr<S>(
+fn translate_path_expr(
     ExprPath { qself, path, .. }: &ExprPath,
-    scope: &mut S,
+    scope: &mut Scope,
     _env: &mut Env,
-) -> syn::Result<Scoped<TypeVar>>
+) -> syn::Result<TokenStream>
 where
-    S: Scope,
 {
-    scope.type_var_builder().from_path(qself.as_ref(), path)
+    let value = scope.type_var_builder().from_path(qself.as_ref(), path)?;
+    Ok(quote! { #value })
 }
 
-fn translate_tuple_expr<S>(
+fn translate_tuple_expr(
     tuple: &ExprTuple,
-    scope: &mut S,
+    scope: &mut Scope,
     env: &mut Env,
-) -> syn::Result<Scoped<TypeVar>>
+) -> syn::Result<TokenStream>
 where
-    S: Scope,
 {
     let types: Vec<_> = tuple
         .elems
         .iter()
         .map(|expr| translate_expr(expr, scope, env))
         .try_collect()?;
-    let var = scope.type_var_builder().make_tuple(types);
-    Ok(var)
+    Ok(quote! { ( #(#types),*  )})
 }
 
-fn translate_binary_expr<S>(
+fn translate_binary_expr(
     ExprBinary {
         left, right, op, ..
     }: &ExprBinary,
-    scope: &mut S,
+    scope: &mut Scope,
     env: &mut Env,
-) -> syn::Result<Scoped<TypeVar>>
+) -> syn::Result<TokenStream>
 where
-    S: Scope,
 {
-    // let left_ty = translate_expr(left, scope, env)?;
-    // let right_ty = translate_expr(right, scope, env)?;
+    let left_ty = translate_expr(left, scope, env)?;
+    let right_ty = translate_expr(right, scope, env)?;
 
-    // let mut make_bin_op = |op: &'static str, left_ty: TypeVar, right_ty: TypeVar| {
-    //     let trait_ = TraitVar {
-    //         segments: vec![
-    //             SegmentVar {
-    //                 ident: Ident::new("core", Span::call_site()),
-    //                 generic_args: vec![],
-    //             },
-    //             SegmentVar {
-    //                 ident: Ident::new("op", Span::call_site()),
-    //                 generic_args: vec![],
-    //             },
-    //             SegmentVar {
-    //                 ident: Ident::new(op, Span::call_site()),
-    //                 generic_args: vec![right_ty],
-    //             },
-    //         ],
-    //     };
+    let mut make_bin_op = |op: &'static str, left_ty: TokenStream, right_ty: TokenStream| {
+        let trait_ = quote! {
+            core::op::#op < #right_ty >
+        };
+        let output = quote! {
+            < #left_ty as #trait_ >::Output
+        };
 
-    //     // add trait bound
-    //     {
-    //         let predicate = left_ty.clone();
-    //         let trait_bounds: TraitBoundsVar = trait_.clone().into();
-    //         let trait_bounds = trait_bounds;
-    //         scope.insert_trait_bounds(predicate, trait_bounds);
-    //     }
+        // add trait bound
+        scope.insert_trait_bounds(left_ty, trait_);
 
-    //     TypeVar::QSelf {
-    //         ty: Box::new(left_ty),
-    //         trait_,
-    //         associated: vec![SegmentVar {
-    //             ident: format_ident!("Output"),
-    //             generic_args: vec![],
-    //         }],
-    //     }
-    // };
+        output
+    };
 
-    // let out_ty = match op {
-    //     BinOp::Add(_) => make_bin_op("Add", left_ty, right_ty),
-    //     BinOp::Sub(_) => make_bin_op("Sub", left_ty, right_ty),
-    //     BinOp::Div(_) => make_bin_op("Div", left_ty, right_ty),
-    //     BinOp::Mul(_) => make_bin_op("Mul", left_ty, right_ty),
-    //     BinOp::And(_) => make_bin_op("And", left_ty, right_ty),
-    //     BinOp::Or(_) => make_bin_op("Or", left_ty, right_ty),
-    //     BinOp::BitAnd(_) => make_bin_op("BitAnd", left_ty, right_ty),
-    //     BinOp::BitOr(_) => make_bin_op("BitOr", left_ty, right_ty),
-    //     BinOp::BitXor(_) => make_bin_op("BitXor", left_ty, right_ty),
-    //     _ => {
-    //         return Err(Error::new(
-    //             op.span(),
-    //             "the binary operator is not supported",
-    //         ))
-    //     }
-    // };
+    let out_ty = match op {
+        BinOp::Add(_) => make_bin_op("Add", left_ty, right_ty),
+        BinOp::Sub(_) => make_bin_op("Sub", left_ty, right_ty),
+        BinOp::Div(_) => make_bin_op("Div", left_ty, right_ty),
+        BinOp::Mul(_) => make_bin_op("Mul", left_ty, right_ty),
+        BinOp::And(_) => make_bin_op("And", left_ty, right_ty),
+        BinOp::Or(_) => make_bin_op("Or", left_ty, right_ty),
+        BinOp::BitAnd(_) => make_bin_op("BitAnd", left_ty, right_ty),
+        BinOp::BitOr(_) => make_bin_op("BitOr", left_ty, right_ty),
+        BinOp::BitXor(_) => make_bin_op("BitXor", left_ty, right_ty),
+        _ => {
+            return Err(Error::new(
+                op.span(),
+                "the binary operator is not supported",
+            ))
+        }
+    };
 
-    // Ok(out_ty)
-    todo!();
+    Ok(out_ty)
 }
 
-fn translate_if_expr<S>(if_: &ExprIf, scope: &mut S, env: &mut Env) -> syn::Result<Scoped<TypeVar>>
+fn translate_if_expr(if_: &ExprIf, scope: &mut Scope, env: &mut Env) -> syn::Result<TokenStream>
 where
-    S: Scope,
 {
     env.create_trait_by_prefix("If", |env, name, builder| -> syn::Result<()> {
         let ExprIf {
@@ -584,41 +553,12 @@ where
             ..
         } = if_;
 
-        let cond_ty = translate_expr(&*cond, scope, env)?;
-        let cond_op = TypeVar::QSelf {
-            ty: Box::new(cond_ty.var),
-            trait_: TraitVar {
-                segments: vec![
-                    SegmentVar {
-                        ident: format_ident!("core"),
-                        generic_args: vec![],
-                    },
-                    SegmentVar {
-                        ident: format_ident!("op"),
-                        generic_args: vec![],
-                    },
-                    SegmentVar {
-                        ident: format_ident!("Eq"),
-                        generic_args: vec![TypeVar::Path {
-                            segments: vec![
-                                SegmentVar {
-                                    ident: format_ident!("typenum"),
-                                    generic_args: vec![],
-                                },
-                                SegmentVar {
-                                    ident: format_ident!("B1"),
-                                    generic_args: vec![],
-                                },
-                            ],
-                        }],
-                    },
-                ],
-            },
-            associated: vec![SegmentVar {
-                ident: format_ident!("Output"),
-                generic_args: vec![],
-            }],
-        };
+        let cond = translate_expr(&*cond, scope, env)?;
+        let eq_trait = quote! { core::op::Eq< typenum::B1 };
+        let cond_ty = quote! { < #cond as #eq_trait >::Output };
+
+        // add trait bound
+        scope.insert_trait_bounds(cond, eq_trait);
 
         Ok(())
     })?;
@@ -626,30 +566,26 @@ where
     todo!();
 }
 
-fn translate_block_expr<S>(
+fn translate_block_expr(
     block: &ExprBlock,
-    scope: &mut S,
+    scope: &mut Scope,
     env: &mut Env,
-) -> syn::Result<Scoped<TypeVar>>
-where
-    S: Scope,
-{
+) -> syn::Result<TokenStream> {
     // solve unlimited recursion
-    todo!();
     // translate_block(&block.block, scope, env)
+    todo!();
 }
 
-fn translate_call_expr<S>(
+fn translate_call_expr(
     call: &ExprCall,
-    scope: &mut S,
+    scope: &mut Scope,
     env: &mut Env,
-) -> syn::Result<Scoped<TypeVar>>
+) -> syn::Result<TokenStream>
 where
-    S: Scope,
 {
     let ExprCall { func, args, .. } = call;
 
-    let func_trait = match &**func {
+    let func = match &**func {
         Expr::Path(ExprPath {
             qself: None, path, ..
         }) => scope.trait_var_builder().from_path(path)?,
@@ -658,17 +594,26 @@ where
         }
         _ => return Err(Error::new(func.span(), "not a trait")),
     };
-    let arg_types: Vec<_> = args
+    let args: Vec<_> = args
         .iter()
         .map(|arg| translate_expr(arg, scope, env))
         .try_collect()?;
 
-    todo!();
+    let func_trait = if args.is_empty() {
+        quote! { #func }
+    } else {
+        quote! { #func < #(#args),* >  }
+    };
+    let output = quote! { < () as #func_trait >::Output };
+
+    scope.insert_trait_bounds(quote! { () }, func_trait);
+
+    Ok(output)
 }
 
-// fn ty_to_trait_bounds<S>(ty: &Type) -> syn::Result<Vec<&Path>>
+// fn ty_to_trait_bounds(ty: &Type) -> syn::Result<Vec<&Path>>
 // where
-//     S: Scope,
+//
 // {
 //     let bounds = match ty {
 //         Type::Infer(_) => vec![],
