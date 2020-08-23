@@ -1,18 +1,19 @@
+pub use by_address::ByAddress;
 pub use itertools::Itertools;
 pub use linked_hash_set::LinkedHashSet;
 pub use proc_macro2::{Span, TokenStream};
 pub use quote::{format_ident, quote, quote_spanned, ToTokens};
 pub use radix_trie::{Trie, TrieKey};
 pub use std::{
-    borrow::{Borrow, Cow},
-    cell::{Cell, RefCell, RefMut},
+    borrow::{Borrow, BorrowMut, Cow},
+    cell::{Cell, Ref, RefCell, RefMut},
     collections::{BTreeSet, HashMap, HashSet},
     convert::{TryFrom, TryInto},
     fmt::Debug,
     hash::Hash,
     iter::{Extend, FromIterator, Sum},
     mem,
-    ops::{Add, AddAssign, Deref},
+    ops::{Add, AddAssign, Deref, DerefMut},
     rc::{Rc, Weak},
 };
 pub use syn::{

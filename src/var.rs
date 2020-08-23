@@ -1,9 +1,50 @@
-use crate::{common::*, scope::ScopeState};
+use crate::{common::*, scope::SharedScopeState};
 
-// pub struct Scoped<T> {
-//     pub scope: Weak<ScopeState>,
-//     pub var: T,
-// }
+#[derive(Clone, Debug)]
+pub struct Scoped<T> {
+    pub scope: SharedScopeState,
+    pub var: T,
+}
+
+impl ToTokens for Scoped<SegmentVar> {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        // let Self { segments } = self;
+
+        // let segment_tokens: Vec<_> = segments
+        //     .iter()
+        //     .map(|(ident, generic_args)| {
+        //         if generic_args.is_empty() {
+        //             quote! {
+        //                 #ident
+        //             }
+        //         } else {
+        //             quote! {
+        //                 #ident<#(#generic_args),*>
+        //             }
+        //         }
+        //     })
+        //     .collect();
+
+        // let expanded = quote! {
+        //     #(#segment_tokens)::*
+        // };
+
+        // tokens.extend(expanded);
+        todo!();
+    }
+}
+
+impl ToTokens for Scoped<TypeVar> {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        todo!();
+    }
+}
+
+impl ToTokens for Scoped<TraitVar> {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        todo!();
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SegmentVar {
@@ -39,10 +80,10 @@ pub struct TraitBoundsVar {
     pub traits: BTreeSet<TraitVar>,
 }
 
-impl TraitBoundsVar {
-    pub fn empty() -> Self {
+impl From<TraitVar> for TraitBoundsVar {
+    fn from(trait_var: TraitVar) -> Self {
         Self {
-            traits: BTreeSet::new(),
+            traits: vec![trait_var].into_iter().collect(),
         }
     }
 }
@@ -102,30 +143,3 @@ impl Extend<TraitVar> for TraitBoundsVar {
         });
     }
 }
-
-// impl ToTokens for TypePathBuf {
-//     fn to_tokens(&self, tokens: &mut TokenStream) {
-//         let Self { segments } = self;
-
-//         let segment_tokens: Vec<_> = segments
-//             .iter()
-//             .map(|(ident, generic_args)| {
-//                 if generic_args.is_empty() {
-//                     quote! {
-//                         #ident
-//                     }
-//                 } else {
-//                     quote! {
-//                         #ident<#(#generic_args),*>
-//                     }
-//                 }
-//             })
-//             .collect();
-
-//         let expanded = quote! {
-//             #(#segment_tokens)::*
-//         };
-
-//         tokens.extend(expanded);
-//     }
-// }

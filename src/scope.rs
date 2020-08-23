@@ -1,7 +1,8 @@
 use crate::{
     common::*,
-    var::{SegmentVar, TraitBoundsVar, TraitVar, TypeVar},
+    var::{Scoped, SegmentVar, TraitBoundsVar, TraitVar, TypeVar},
 };
+
 pub use quantifier_dict::*;
 pub use scope::*;
 pub use trait_bounds_dict::*;
@@ -14,13 +15,11 @@ mod scope {
     where
         Self: Sized + Debug,
     {
-        fn take_state(&mut self) -> ScopeState;
+        fn state(&self) -> Ref<ScopeState>;
 
-        fn set_state(&mut self, state: ScopeState);
+        fn state_mut(&mut self) -> RefMut<ScopeState>;
 
-        fn state(&self) -> &ScopeState;
-
-        fn state_mut(&mut self) -> &mut ScopeState;
+        fn clone_state(&self) -> SharedScopeState;
 
         fn bounded_quantifiers(&self) -> &HashMap<Ident, usize>;
 
@@ -28,7 +27,13 @@ mod scope {
 
         fn get_var_id(&self, ident: &Ident) -> Option<usize>;
 
-        fn assign_quantifier_on_parent(&mut self, ident: &Ident, value: Rc<TypeVar>) -> bool;
+        fn assign_quantifier_on_parent(&mut self, ident: &Ident, value: Scoped<TypeVar>) -> bool;
+
+        fn recursive_local_quantifiers(
+            &self,
+            shadowed: &mut HashSet<Ident>,
+            found: &mut HashMap<Ident, Quantifier>,
+        );
 
         fn branch(&self) -> RootScope;
 
@@ -37,32 +42,49 @@ mod scope {
             self.insert_quantifier(ident, value, false);
         }
 
-        fn insert_quantifier(&mut self, ident: Ident, value: Rc<TypeVar>, is_mut: bool) {
-            assert!(
-                self.state().type_vars.contains(&value),
-                "please report bug: the type is not bounded"
-            );
+        fn insert_quantifier(&mut self, ident: Ident, value: Scoped<TypeVar>, is_mut: bool) {
+            let state = self.clone_state();
+            assert_eq!(state, value.scope);
 
             // obtain a new variable id
             let var_id = self.create_var_id();
             self.bounded_quantifiers_mut().insert(ident, var_id);
-            self.state_mut().quantifiers.insert(var_id, value, is_mut);
+            self.state_mut()
+                .quantifiers
+                .insert(var_id, value.var, is_mut);
         }
 
-        fn insert_trait_bounds(&mut self, predicate: Rc<TypeVar>, bounds: Rc<TraitBoundsVar>) {
-            self.state_mut().trait_bounds.insert(predicate, bounds);
+        fn insert_trait_bounds(
+            &mut self,
+            predicate: Scoped<TypeVar>,
+            bounds: Scoped<TraitBoundsVar>,
+        ) {
+            let state = self.clone_state();
+            assert_eq!(state, predicate.scope);
+            assert_eq!(state, bounds.scope);
+            self.state_mut()
+                .trait_bounds
+                .insert(predicate.var, bounds.var);
         }
 
-        fn assign_quantifier(&mut self, ident: &Ident, value: Rc<TypeVar>) -> bool {
+        fn assign_quantifier(&mut self, ident: &Ident, value: Scoped<TypeVar>) -> bool {
+            assert_eq!(self.clone_state(), value.scope);
+
             // check if the identifier is defined in this scope
             match self.bounded_quantifiers().get(ident).copied() {
                 Some(prev_var_id) => {
-                    let (is_mut, _) = self.state().quantifiers.get(&prev_var_id);
+                    let Quantifier { is_mut, .. } = *self
+                        .state()
+                        .quantifiers
+                        .get(&prev_var_id)
+                        .expect("please report bug: missing quantifier value");
 
                     // check if the quantifier is mutable
                     if is_mut {
                         let new_var_id = self.create_var_id();
-                        self.state_mut().quantifiers.insert(new_var_id, value, true);
+                        self.state_mut()
+                            .quantifiers
+                            .insert(new_var_id, value.var, true);
                         self.bounded_quantifiers_mut()
                             .insert(ident.to_owned(), new_var_id);
                         true
@@ -93,84 +115,53 @@ mod scope {
             TraitBoundsVarBuilder::new(self)
         }
 
-        fn add_type_var(&mut self, var: TypeVar) -> Rc<TypeVar> {
-            let var = Rc::new(var);
-            self.state_mut().type_vars.insert(var.clone());
-            var
-        }
-
-        fn add_trait_var(&mut self, var: TraitVar) -> Rc<TraitVar> {
-            let var = Rc::new(var);
-            self.state_mut().trait_vars.insert(var.clone());
-            var
-        }
-
-        fn add_trait_bounds_var(&mut self, var: TraitBoundsVar) -> Rc<TraitBoundsVar> {
-            let var = Rc::new(var);
-            self.state_mut().trait_bounds_vars.insert(var.clone());
-            var
-        }
-
-        fn contains_type_var(&self, var: &Rc<TypeVar>) -> bool {
-            self.state().type_vars.contains(var)
+        fn local_quantifiers(&self) -> HashMap<Ident, Quantifier> {
+            let mut shadowed = HashSet::new();
+            let mut found = HashMap::new();
+            self.recursive_local_quantifiers(&mut shadowed, &mut found);
+            found
         }
 
         fn sub_scope<'a, F, T>(&'a mut self, f: F) -> T
         where
             F: FnOnce(&mut SubScope<'a, Self>) -> T,
         {
-            let (me, ret, state) = {
-                let state = self.take_state();
-                let mut sub_scope = SubScope {
-                    parent: self,
-                    bounded_quantifiers: HashMap::new(),
-                    state: Some(state),
-                };
-
-                let ret = f(&mut sub_scope);
-                let me = sub_scope.parent;
-                let state = sub_scope
-                    .state
-                    .expect("please report bug: the subscope does not have a valid state");
-                (me, ret, state)
+            let state = self.clone_state();
+            let mut sub_scope = SubScope {
+                parent: self,
+                bounded_quantifiers: HashMap::new(),
+                state,
             };
-            me.set_state(state);
-            ret
+            f(&mut sub_scope)
         }
     }
 
     #[derive(Debug, Clone)]
     pub struct RootScope {
         bounded_quantifiers: HashMap<Ident, usize>,
-        state: Option<ScopeState>,
+        state: SharedScopeState,
     }
 
     impl RootScope {
         pub fn new() -> Self {
             Self {
                 bounded_quantifiers: HashMap::new(),
-                state: Some(ScopeState::new()),
+                state: SharedScopeState::new(),
             }
         }
     }
 
     impl Scope for RootScope {
-        fn take_state(&mut self) -> ScopeState {
-            self.state
-                .take()
-                .expect("please report bug: the state is already taken")
+        fn state(&self) -> Ref<ScopeState> {
+            self.state.borrow()
         }
 
-        fn set_state(&mut self, state: ScopeState) {
-            self.state = Some(state)
+        fn state_mut(&mut self) -> RefMut<ScopeState> {
+            self.state.borrow_mut()
         }
 
-        fn state(&self) -> &ScopeState {
-            self.state.as_ref().unwrap()
-        }
-
-        fn state_mut(&mut self) -> &mut ScopeState {
-            self.state.as_mut().unwrap()
+        fn clone_state(&self) -> SharedScopeState {
+            self.state.clone()
         }
 
         fn bounded_quantifiers(&self) -> &HashMap<Ident, usize> {
@@ -181,7 +172,7 @@ mod scope {
             &mut self.bounded_quantifiers
         }
 
-        fn assign_quantifier_on_parent(&mut self, _ident: &Ident, _value: Rc<TypeVar>) -> bool {
+        fn assign_quantifier_on_parent(&mut self, _ident: &Ident, _value: Scoped<TypeVar>) -> bool {
             false
         }
 
@@ -192,6 +183,27 @@ mod scope {
         fn branch(&self) -> RootScope {
             self.clone()
         }
+
+        fn recursive_local_quantifiers(
+            &self,
+            shadowed: &mut HashSet<Ident>,
+            found: &mut HashMap<Ident, Quantifier>,
+        ) {
+            self.bounded_quantifiers()
+                .iter()
+                .for_each(|(ident, var_id)| {
+                    shadowed.get_or_insert_with(ident, |_| {
+                        let quantifier = self
+                            .state()
+                            .quantifiers
+                            .get(var_id)
+                            .expect("please report bug: missing quantifier value")
+                            .to_owned();
+                        found.insert(ident.to_owned(), quantifier);
+                        ident.to_owned()
+                    });
+                });
+        }
     }
 
     #[derive(Debug)]
@@ -201,29 +213,23 @@ mod scope {
     {
         parent: &'a mut S,
         bounded_quantifiers: HashMap<Ident, usize>,
-        state: Option<ScopeState>,
+        state: SharedScopeState,
     }
 
     impl<'a, S> Scope for SubScope<'a, S>
     where
         S: Scope,
     {
-        fn take_state(&mut self) -> ScopeState {
-            self.state
-                .take()
-                .expect("please report bug: the state is already taken")
+        fn state(&self) -> Ref<ScopeState> {
+            self.state.borrow()
         }
 
-        fn set_state(&mut self, state: ScopeState) {
-            self.state = Some(state)
+        fn state_mut(&mut self) -> RefMut<ScopeState> {
+            self.state.borrow_mut()
         }
 
-        fn state(&self) -> &ScopeState {
-            self.state.as_ref().unwrap()
-        }
-
-        fn state_mut(&mut self) -> &mut ScopeState {
-            self.state.as_mut().unwrap()
+        fn clone_state(&self) -> SharedScopeState {
+            self.state.clone()
         }
 
         fn bounded_quantifiers(&self) -> &HashMap<Ident, usize> {
@@ -234,7 +240,7 @@ mod scope {
             &mut self.bounded_quantifiers
         }
 
-        fn assign_quantifier_on_parent(&mut self, ident: &Ident, value: Rc<TypeVar>) -> bool {
+        fn assign_quantifier_on_parent(&mut self, ident: &Ident, value: Scoped<TypeVar>) -> bool {
             self.parent.assign_quantifier(ident, value)
         }
 
@@ -261,6 +267,28 @@ mod scope {
             scope.state = state.clone();
             scope
         }
+
+        fn recursive_local_quantifiers(
+            &self,
+            shadowed: &mut HashSet<Ident>,
+            found: &mut HashMap<Ident, Quantifier>,
+        ) {
+            self.bounded_quantifiers()
+                .iter()
+                .for_each(|(ident, var_id)| {
+                    shadowed.get_or_insert_with(ident, |_| {
+                        let quantifier = self
+                            .state()
+                            .quantifiers
+                            .get(var_id)
+                            .expect("please report bug: missing quantifier value")
+                            .to_owned();
+                        found.insert(ident.to_owned(), quantifier);
+                        ident.to_owned()
+                    });
+                });
+            self.parent.recursive_local_quantifiers(shadowed, found);
+        }
     }
 
     #[derive(Debug, Clone)]
@@ -268,9 +296,6 @@ mod scope {
         var_counter: usize,
         trait_bounds: TraitBoundDict,
         quantifiers: QuantifierDict,
-        type_vars: HashSet<Rc<TypeVar>>,
-        trait_vars: HashSet<Rc<TraitVar>>,
-        trait_bounds_vars: HashSet<Rc<TraitBoundsVar>>,
     }
 
     impl ScopeState {
@@ -279,10 +304,24 @@ mod scope {
                 var_counter: 0,
                 trait_bounds: TraitBoundDict::new(),
                 quantifiers: QuantifierDict::new(),
-                type_vars: HashSet::new(),
-                trait_vars: HashSet::new(),
-                trait_bounds_vars: HashSet::new(),
             }
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub struct SharedScopeState(ByAddress<Rc<RefCell<ScopeState>>>);
+
+    impl SharedScopeState {
+        pub fn new() -> Self {
+            Self(ByAddress(Rc::new(RefCell::new(ScopeState::new()))))
+        }
+
+        fn borrow(&self) -> Ref<ScopeState> {
+            self.0.deref().deref().borrow()
+        }
+
+        fn borrow_mut(&mut self) -> RefMut<ScopeState> {
+            self.0.deref().deref().borrow_mut()
         }
     }
 
@@ -307,61 +346,74 @@ mod var_builder {
             Self { scope }
         }
 
-        pub fn from_ident(&mut self, ident: &Ident) -> Rc<TypeVar>
+        pub fn from_ident(&mut self, ident: &Ident) -> Scoped<TypeVar>
         where
             S: Scope,
         {
-            let var = TypeVar::Path {
-                segments: vec![SegmentVar {
-                    ident: ident.to_owned(),
-                    generic_args: vec![],
-                }],
-            };
-            self.scope.add_type_var(var)
+            Scoped {
+                scope: self.scope.clone_state(),
+                var: TypeVar::Path {
+                    segments: vec![SegmentVar {
+                        ident: ident.to_owned(),
+                        generic_args: vec![],
+                    }],
+                },
+            }
         }
 
-        pub fn from_quantifier(&mut self, ident: &Ident) -> Option<Rc<TypeVar>>
+        pub fn from_quantifier(&mut self, ident: &Ident) -> Option<Scoped<TypeVar>>
         where
             S: Scope,
         {
-            let var = TypeVar::Var {
-                id: self.scope.get_var_id(ident)?,
-            };
-            Some(self.scope.add_type_var(var))
+            Some(Scoped {
+                scope: self.scope.clone_state(),
+                var: TypeVar::Var {
+                    id: self.scope.get_var_id(ident)?,
+                },
+            })
         }
 
-        pub fn from_path(&mut self, qself: Option<&QSelf>, path: &Path) -> syn::Result<Rc<TypeVar>>
+        pub fn from_path(
+            &mut self,
+            qself: Option<&QSelf>,
+            path: &Path,
+        ) -> syn::Result<Scoped<TypeVar>>
         where
             S: Scope,
         {
-            let var = type_var_fn::from_path(self.scope, qself, path)?;
-            Ok(self.scope.add_type_var(var))
+            Ok(Scoped {
+                scope: self.scope.clone_state(),
+                var: type_var_fn::from_path(self.scope, qself, path)?,
+            })
         }
 
-        pub fn from_pat(&mut self, pat: &Pat) -> syn::Result<Rc<TypeVar>>
+        pub fn from_pat(&mut self, pat: &Pat) -> syn::Result<Scoped<TypeVar>>
         where
             S: Scope,
         {
-            let var = type_var_fn::from_pat(self.scope, pat)?;
-            Ok(self.scope.add_type_var(var))
+            Ok(Scoped {
+                scope: self.scope.clone_state(),
+                var: type_var_fn::from_pat(self.scope, pat)?,
+            })
         }
 
-        pub fn make_tuple(&mut self, paths: &[Rc<TypeVar>]) -> Rc<TypeVar>
+        pub fn make_tuple<I>(&mut self, paths: I) -> Scoped<TypeVar>
         where
             S: Scope,
+            I: IntoIterator<Item = Scoped<TypeVar>>,
         {
-            let types = paths
-                .iter()
-                .map(|ty| {
-                    assert!(
-                        self.scope.contains_type_var(ty),
-                        "please report bug: the type var is not valid"
-                    );
-                    ty.as_ref().to_owned()
-                })
-                .collect();
-            let var = TypeVar::Tuple { types };
-            self.scope.add_type_var(var)
+            Scoped {
+                scope: self.scope.clone_state(),
+                var: TypeVar::Tuple {
+                    types: paths
+                        .into_iter()
+                        .map(|ty| {
+                            let Scoped { scope, var } = ty;
+                            var
+                        })
+                        .collect(),
+                },
+            }
         }
     }
 
@@ -381,9 +433,11 @@ mod var_builder {
             Self { scope }
         }
 
-        pub fn from_path(&mut self, path: &Path) -> syn::Result<Rc<TraitVar>> {
-            let var = trait_var_fn::from_path(self.scope, path)?;
-            Ok(self.scope.add_trait_var(var))
+        pub fn from_path(&mut self, path: &Path) -> syn::Result<Scoped<TraitVar>> {
+            Ok(Scoped {
+                scope: self.scope.clone_state(),
+                var: trait_var_fn::from_path(self.scope, path)?,
+            })
         }
     }
 
@@ -403,21 +457,29 @@ mod var_builder {
             Self { scope }
         }
 
-        pub fn empty(&mut self) -> Rc<TraitBoundsVar> {
-            let var = TraitBoundsVar::empty();
-            self.scope.add_trait_bounds_var(var)
+        pub fn empty(&mut self) -> Scoped<TraitBoundsVar> {
+            Scoped {
+                scope: self.scope.clone_state(),
+                var: TraitBoundsVar {
+                    traits: BTreeSet::new(),
+                },
+            }
         }
-        pub fn from_type(&mut self, ty: &Type) -> syn::Result<Rc<TraitBoundsVar>> {
-            let var = trait_bounds_var_fn::from_type(self.scope, ty)?;
-            Ok(self.scope.add_trait_bounds_var(var))
+        pub fn from_type(&mut self, ty: &Type) -> syn::Result<Scoped<TraitBoundsVar>> {
+            Ok(Scoped {
+                scope: self.scope.clone_state(),
+                var: trait_bounds_var_fn::from_type(self.scope, ty)?,
+            })
         }
 
         pub fn from_type_param_bounds(
             &mut self,
             bounds: &Punctuated<TypeParamBound, syn::token::Add>,
-        ) -> syn::Result<Rc<TraitBoundsVar>> {
-            let var = trait_bounds_var_fn::from_type_param_bounds(self.scope, bounds)?;
-            Ok(self.scope.add_trait_bounds_var(var))
+        ) -> syn::Result<Scoped<TraitBoundsVar>> {
+            Ok(Scoped {
+                scope: self.scope.clone_state(),
+                var: trait_bounds_var_fn::from_type_param_bounds(self.scope, bounds)?,
+            })
         }
     }
 
@@ -657,8 +719,7 @@ mod quantifier_dict {
 
     #[derive(Clone, Debug)]
     pub struct QuantifierDict {
-        // var_id -> (is_mut, value)
-        map: HashMap<usize, QuantifierState>,
+        map: HashMap<usize, Quantifier>,
     }
 
     impl QuantifierDict {
@@ -668,39 +729,44 @@ mod quantifier_dict {
             }
         }
 
-        pub fn contains<K>(&self, var_id: K) -> bool
-        where
-            K: std::borrow::Borrow<usize>,
-        {
-            self.map.contains_key(var_id.borrow())
-        }
+        // pub fn contains<K>(&self, var_id: K) -> bool
+        // where
+        //     K: std::borrow::Borrow<usize>,
+        // {
+        //     self.map.contains_key(var_id.borrow())
+        // }
 
-        pub fn insert(&mut self, var_id: usize, value: Rc<TypeVar>, is_mut: bool) {
-            let prev = self.map.insert(var_id, QuantifierState { is_mut, value });
+        pub fn insert(&mut self, var_id: usize, value: TypeVar, is_mut: bool) {
+            let prev = self.map.insert(
+                var_id,
+                Quantifier {
+                    id: var_id,
+                    is_mut,
+                    value,
+                },
+            );
             if let Some(_) = prev {
                 panic!("please report bug: the type varaible is initialized more than once");
             }
         }
 
-        pub fn get<K>(&self, var_id: K) -> (bool, &TypeVar)
+        pub fn get<K>(&self, var_id: K) -> Option<&Quantifier>
         where
             K: std::borrow::Borrow<usize>,
         {
-            let QuantifierState { is_mut, value } =
-                self.map.get(var_id.borrow()).expect("please report bug");
-            (*is_mut, value)
+            self.map.get(var_id.borrow())
         }
     }
 
     impl IntoIterator for QuantifierDict {
-        type Item = (usize, Rc<TypeVar>);
-        type IntoIter = Box<dyn Iterator<Item = (usize, Rc<TypeVar>)>>;
+        type Item = (usize, TypeVar);
+        type IntoIter = Box<dyn Iterator<Item = (usize, TypeVar)>>;
 
         fn into_iter(self) -> Self::IntoIter {
             let iter = self
                 .map
                 .into_iter()
-                .map(|(var_id, QuantifierState { value, .. })| (var_id, value));
+                .map(|(var_id, Quantifier { value, .. })| (var_id, value));
             Box::new(iter)
         }
     }
@@ -714,9 +780,10 @@ mod quantifier_dict {
     }
 
     #[derive(Clone, Debug)]
-    struct QuantifierState {
+    pub struct Quantifier {
+        pub id: usize,
         pub is_mut: bool,
-        pub value: Rc<TypeVar>,
+        pub value: TypeVar,
     }
 }
 
@@ -725,7 +792,7 @@ mod trait_bounds_dict {
 
     #[derive(Clone, Debug)]
     pub struct TraitBoundDict {
-        bounds: HashMap<Rc<TypeVar>, Rc<TraitBoundsVar>>,
+        bounds: HashMap<TypeVar, TraitBoundsVar>,
     }
 
     impl TraitBoundDict {
@@ -735,12 +802,12 @@ mod trait_bounds_dict {
             }
         }
 
-        pub fn insert(&mut self, predicate: Rc<TypeVar>, bounds: Rc<TraitBoundsVar>) {
+        pub fn insert(&mut self, predicate: TypeVar, bounds: TraitBoundsVar) {
             use std::collections::hash_map::Entry;
 
             match self.bounds.entry(predicate) {
                 Entry::Occupied(mut entry) => {
-                    *entry.get_mut() = Rc::new(&**entry.get() + &*bounds);
+                    *entry.get_mut() += bounds;
                 }
                 Entry::Vacant(entry) => {
                     entry.insert(bounds);
@@ -749,31 +816,28 @@ mod trait_bounds_dict {
         }
     }
 
-    impl FromIterator<(Rc<TypeVar>, Rc<TraitBoundsVar>)> for TraitBoundDict {
+    impl FromIterator<(TypeVar, TraitBoundsVar)> for TraitBoundDict {
         fn from_iter<T>(iter: T) -> Self
         where
-            T: IntoIterator<Item = (Rc<TypeVar>, Rc<TraitBoundsVar>)>,
+            T: IntoIterator<Item = (TypeVar, TraitBoundsVar)>,
         {
             let bounds: HashMap<_, _> = iter
                 .into_iter()
                 .into_group_map()
                 .into_iter()
                 .map(|(type_, bounds_vec)| {
-                    let bounds: TraitBoundsVar = bounds_vec
-                        .into_iter()
-                        .map(|bounds| bounds.as_ref().to_owned())
-                        .sum();
-                    (type_, Rc::new(bounds))
+                    let bounds: TraitBoundsVar = bounds_vec.into_iter().sum();
+                    (type_, bounds)
                 })
                 .collect();
             Self { bounds }
         }
     }
 
-    impl Extend<(Rc<TypeVar>, Rc<TraitBoundsVar>)> for TraitBoundDict {
+    impl Extend<(TypeVar, TraitBoundsVar)> for TraitBoundDict {
         fn extend<T>(&mut self, iter: T)
         where
-            T: IntoIterator<Item = (Rc<TypeVar>, Rc<TraitBoundsVar>)>,
+            T: IntoIterator<Item = (TypeVar, TraitBoundsVar)>,
         {
             iter.into_iter().for_each(|(predicate, bound)| {
                 self.insert(predicate, bound);
@@ -782,8 +846,8 @@ mod trait_bounds_dict {
     }
 
     impl IntoIterator for TraitBoundDict {
-        type Item = (Rc<TypeVar>, Rc<TraitBoundsVar>);
-        type IntoIter = std::collections::hash_map::IntoIter<Rc<TypeVar>, Rc<TraitBoundsVar>>;
+        type Item = (TypeVar, TraitBoundsVar);
+        type IntoIter = std::collections::hash_map::IntoIter<TypeVar, TraitBoundsVar>;
 
         fn into_iter(self) -> Self::IntoIter {
             self.bounds.into_iter()
