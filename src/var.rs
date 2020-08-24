@@ -1,9 +1,164 @@
 use crate::{common::*, scope::SharedScopeState};
 
+pub trait ScopedExt {
+    fn is_bounded(&self) -> bool;
+}
+
 #[derive(Clone, Debug)]
 pub struct Scoped<T> {
     pub scope: SharedScopeState,
     pub var: T,
+}
+
+impl<T> Scoped<T> {
+    pub fn as_ref(&self) -> Scoped<&T> {
+        let Scoped { scope, var } = self;
+        Scoped {
+            scope: scope.clone(),
+            var,
+        }
+    }
+}
+
+impl ScopedExt for Scoped<&TypeVar> {
+    fn is_bounded(&self) -> bool {
+        let Self { scope, var: ty } = self;
+
+        match ty {
+            TypeVar::Var { id } => {
+                todo!();
+            }
+            TypeVar::Path { segments } => Scoped {
+                scope: scope.clone(),
+                var: segments,
+            }
+            .is_bounded(),
+            TypeVar::QSelf {
+                ty,
+                trait_,
+                associated,
+            } => {
+                Scoped {
+                    scope: scope.clone(),
+                    var: &**ty,
+                }
+                .is_bounded()
+                    && Scoped {
+                        scope: scope.clone(),
+                        var: trait_,
+                    }
+                    .is_bounded()
+                    && Scoped {
+                        scope: scope.clone(),
+                        var: associated,
+                    }
+                    .is_bounded()
+            }
+            TypeVar::Tuple { types } => types.iter().all(|ty| {
+                Scoped {
+                    scope: scope.clone(),
+                    var: ty,
+                }
+                .is_bounded()
+            }),
+        }
+    }
+}
+
+impl ScopedExt for Scoped<TypeVar> {
+    fn is_bounded(&self) -> bool {
+        self.as_ref().is_bounded()
+    }
+}
+
+impl ScopedExt for Scoped<&Vec<SegmentVar>> {
+    fn is_bounded(&self) -> bool {
+        let Self {
+            scope,
+            var: segments,
+        } = self;
+
+        segments.iter().all(|segment| {
+            Scoped {
+                scope: scope.clone(),
+                var: segment,
+            }
+            .is_bounded()
+        })
+    }
+}
+
+impl ScopedExt for Scoped<Vec<SegmentVar>> {
+    fn is_bounded(&self) -> bool {
+        self.as_ref().is_bounded()
+    }
+}
+
+impl ScopedExt for Scoped<&SegmentVar> {
+    fn is_bounded(&self) -> bool {
+        let Self {
+            scope,
+            var: SegmentVar { generic_args, .. },
+        } = self;
+
+        generic_args.iter().all(|ty| {
+            Scoped {
+                scope: scope.clone(),
+                var: ty,
+            }
+            .is_bounded()
+        })
+    }
+}
+
+impl ScopedExt for Scoped<SegmentVar> {
+    fn is_bounded(&self) -> bool {
+        self.as_ref().is_bounded()
+    }
+}
+
+impl ScopedExt for Scoped<&TraitVar> {
+    fn is_bounded(&self) -> bool {
+        let Self {
+            scope,
+            var: TraitVar { segments },
+        } = self;
+
+        Scoped {
+            scope: scope.clone(),
+            var: segments,
+        }
+        .is_bounded()
+    }
+}
+
+impl ScopedExt for Scoped<TraitVar> {
+    fn is_bounded(&self) -> bool {
+        self.as_ref().is_bounded()
+    }
+}
+
+impl ScopedExt for Scoped<&TraitBoundsVar> {
+    fn is_bounded(&self) -> bool {
+        let Self {
+            scope,
+            var: TraitBoundsVar { traits },
+        } = self;
+
+        traits.iter().all(|trait_| {
+            Scoped {
+                scope: scope.clone(),
+                var: trait_,
+            }
+            .is_bounded()
+        })
+    }
+}
+
+impl ScopedExt for Scoped<TraitBoundsVar> {
+    fn is_bounded(&self) -> bool {
+        self.as_ref().is_bounded()
+    }
 }
 
 impl ToTokens for Scoped<&TypeVar> {
@@ -62,11 +217,7 @@ impl ToTokens for Scoped<&TypeVar> {
 
 impl ToTokens for Scoped<TypeVar> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        Scoped {
-            scope: self.scope.clone(),
-            var: &self.var,
-        }
-        .to_tokens(tokens)
+        self.as_ref().to_tokens(tokens)
     }
 }
 
@@ -88,11 +239,7 @@ impl ToTokens for Scoped<&TraitVar> {
 
 impl ToTokens for Scoped<TraitVar> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        Scoped {
-            scope: self.scope.clone(),
-            var: &self.var,
-        }
-        .to_tokens(tokens)
+        self.as_ref().to_tokens(tokens)
     }
 }
 
@@ -137,11 +284,7 @@ impl ToTokens for Scoped<&Vec<SegmentVar>> {
 
 impl ToTokens for Scoped<Vec<SegmentVar>> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        Scoped {
-            scope: self.scope.clone(),
-            var: &self.var,
-        }
-        .to_tokens(tokens)
+        self.as_ref().to_tokens(tokens)
     }
 }
 
@@ -169,11 +312,7 @@ impl ToTokens for Scoped<&TraitBoundsVar> {
 
 impl ToTokens for Scoped<TraitBoundsVar> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        Scoped {
-            scope: self.scope.clone(),
-            var: &self.var,
-        }
-        .to_tokens(tokens)
+        self.as_ref().to_tokens(tokens)
     }
 }
 

@@ -11,6 +11,7 @@ pub use std::{
     convert::{TryFrom, TryInto},
     fmt::Debug,
     hash::Hash,
+    iter,
     iter::{Extend, FromIterator, Sum},
     mem,
     ops::{Add, AddAssign, Deref, DerefMut},
@@ -27,5 +28,5 @@ pub use syn::{
     ImplItem, ImplItemMethod, ImplItemType, Item, ItemEnum, ItemFn, ItemImpl, ItemStruct, Local,
     Pat, PatIdent, PatPath, PatType, Path, PathArguments, PathSegment, QSelf, Receiver, ReturnType,
     Signature, Stmt, TraitBound, TraitBoundModifier, Type, TypeParam, TypeParamBound, TypeParen,
-    TypePath, TypeTuple, Variant,
+    TypePath, TypeTuple, Variant, Visibility,
 };

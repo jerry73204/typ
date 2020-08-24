@@ -1,4 +1,8 @@
-use crate::{common::*, env::Env, scope::Scope};
+use crate::{
+    common::*,
+    env::Env,
+    scope::{Scope, Variable},
+};
 
 pub fn translate_items(items: &[Item]) -> syn::Result<TokenStream> {
     let tokens_vec: Vec<_> = items
@@ -174,16 +178,10 @@ fn translate_impl(impl_: &ItemImpl) -> syn::Result<TokenStream> {
         .iter()
         .map(|item| -> syn::Result<_> {
             match item {
-                // ImplItem::Type(type_) => {
-                //     let ImplItemType {
-                //         ident: type_name,
-                //         ty,
-                //         ..
-                //     } = type_;
-                //     todo!();
-                // }
                 ImplItem::Method(method) => {
-                    let ImplItemMethod { sig, block, .. } = method;
+                    let ImplItemMethod {
+                        sig, block, vis, ..
+                    } = method;
                     translate_fn(sig, block, Some(trait_path))?
                 }
                 _ => {
@@ -202,37 +200,64 @@ fn translate_impl(impl_: &ItemImpl) -> syn::Result<TokenStream> {
 fn translate_fn(
     sig: &Signature,
     block: &Block,
-    self_trait_opt: Option<&Path>,
+    self_ty: Option<&Path>,
 ) -> syn::Result<TokenStream> {
     let Signature {
         ident: trait_op_name,
         generics,
         inputs,
         output,
+        constness,
+        asyncness,
+        unsafety,
+        variadic,
         ..
     } = sig;
+
+    if let Some(const_) = constness {
+        return Err(Error::new(const_.span(), "the keyword is not supported"));
+    }
+
+    if let Some(async_) = asyncness {
+        return Err(Error::new(async_.span(), "the keyword is not supported"));
+    }
+
+    if let Some(unsafe_) = unsafety {
+        return Err(Error::new(unsafe_.span(), "the keyword is not supported"));
+    }
+
+    if let Some(var) = variadic {
+        return Err(Error::new(var.span(), "variadic argument is not supported"));
+    }
 
     // create root scope and env
     let mut env = Env::new();
     let mut scope = Scope::new();
 
-    // TODO
-    // match (self_trait_opt, inputs.first()) {
-    //     (
-    //         Some(self_trait),
-    //         Some(FnArg::Receiver(Receiver {
-    //             reference: None, ..
-    //         })),
-    //     ) => {
-    //         // TODO
-    //     }
-    //     _ => {
-    //         return Err(Error::new(
-    //             sig.span(),
-    //             r#"methods in impl block must place "self" at the first argument"#,
-    //         ))
-    //     }
-    // };
+    // check if "self" is present in the input arguments and is consistent with impl block
+    let fn_self_ty = match (self_ty, inputs.first()) {
+        (
+            Some(self_ty),
+            Some(FnArg::Receiver(Receiver {
+                reference: None, ..
+            })),
+        ) => Some(self_ty),
+        (
+            Some(self_ty),
+            Some(
+                receiver @ FnArg::Receiver(Receiver {
+                    reference: Some(_), ..
+                }),
+            ),
+        ) => return Err(Error::new(receiver.span(), r#""&self" is not supported"#)),
+        (None, Some(FnArg::Receiver(receiver @ Receiver { .. }))) => {
+            return Err(Error::new(
+                receiver.span(),
+                "self receiver is not accepted in the impl block without self trait",
+            ))
+        }
+        _ => None,
+    };
 
     // translate function generics to initial quantifiers
     {
@@ -304,10 +329,11 @@ fn translate_fn(
     };
 
     // build trait and impls
-    env.create_trait_by_name(trait_op_name.clone(), |env, builder| {
-        todo!();
-    });
+    // env.create_trait_by_name(trait_op_name.clone(), |env, builder| {
+    //     todo!();
+    // });
 
+    // add trait bounds for return type
     todo!();
 }
 
@@ -440,29 +466,117 @@ where
 {
     let ExprMatch { expr, arms, .. } = match_;
 
-    let matched_type = match &**expr {
+    let pattern_tokens = match &**expr {
         Expr::Path(path) => translate_path_expr(&path, scope, env)?,
         _ => return Err(Error::new(expr.span(), "not a type")),
     };
 
-    let _: Vec<_> = arms
+    let free_quantifiers = scope.free_quantifiers();
+    let mutable_quantifiers = scope.mutable_quantifiers();
+    let generics: Vec<_> = free_quantifiers.keys().collect();
+
+    // generate trait names
+    let match_trait_name = env
+        .register_trait_name("MatchArm")
+        .expect("the trait name cannot proper prefix of existing trait names");
+
+    let side_effect_trait_names: HashMap<_, _> = mutable_quantifiers
+        .iter()
+        .map(|(_ident, Variable { id: var_id, .. })| {
+            let trait_name = env
+                .register_trait_name("MatchSideEffect")
+                .expect("please report bug: accidentally using a proper prefix");
+            (var_id, trait_name)
+        })
+        .collect();
+
+    // generate trait items
+    // TODO: avoid name collision on generics
+    let match_trait_item = quote! {
+        trait #match_trait_name < #(#generics),* , __> {
+            type Output;
+        }
+    };
+
+    let side_effect_trait_items: Vec<_> = side_effect_trait_names
+        .iter()
+        .map(|(_var_id, trait_name)| {
+            quote! {
+                trait #trait_name < #(#generics),* , __> {
+                    type Output;
+                }
+            }
+        })
+        .collect();
+
+    // generate impl items
+    let impl_items: Vec<_> = arms
         .iter()
         .map(|arm| -> syn::Result<_> {
             let Arm { pat, body, .. } = arm;
             let mut branched_scope = scope.clone();
 
-            let ty = scope.type_var_builder().from_pat(pat)?;
-            let value = translate_expr(body, &mut branched_scope, env)?;
+            let pat_tokens = {
+                let ty = scope.type_var_builder().from_pat(pat)?;
+                quote! { #ty }
+            };
+            let body_tokens = translate_expr(body, &mut branched_scope, env)?;
 
-            env.create_trait_by_prefix("Match", |env, trait_name, builder| {
-                todo!();
-            });
+            // impl item for matched type
+            let match_impl = quote! {
+                impl< #(#generics),* > #match_trait_name<#(#generics),* , #pat_tokens> for () {
+                    type Output = #body_tokens;
+                }
+            };
 
-            Ok(())
+            // side effects
+            let side_effect_impls: Vec<_> = mutable_quantifiers
+                .iter()
+                .map(|(_ident, Variable { id: var_id, .. })| {
+                    let trait_name = &side_effect_trait_names[var_id];
+                    let value = branched_scope
+                        .get_variable(var_id)
+                        .expect("please report bug: the variable is missing")
+                        .value;
+
+                    quote! {
+                        impl< #(#generics),* > #trait_name< #(#generics),* , #pat_tokens > for () {
+                            type Output = #value;
+                        }
+                    }
+                })
+                .collect();
+
+            let impls: Vec<_> = iter::once(match_impl).chain(side_effect_impls).collect();
+            Ok(impls)
         })
-        .try_collect()?;
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .flatten()
+        .collect();
 
-    todo!();
+    // add items to env
+    env.add_item(match_trait_item);
+    env.extend_items(side_effect_trait_items);
+    env.extend_items(impl_items);
+
+    // assign affected variables
+    for (ident, Variable { id: var_id, .. }) in mutable_quantifiers.iter() {
+        let trait_name = &side_effect_trait_names[var_id];
+        scope.assign_quantifier(
+            ident,
+            quote! {
+                < () as #trait_name < #(#generics),* , #pattern_tokens > >::Output
+            },
+        )?;
+    }
+
+    // construct returned value
+    let output = quote! {
+        < () as #match_trait_name < #(#generics),* , #pattern_tokens > >::Output
+    };
+
+    Ok(output)
 }
 
 fn translate_path_expr(
@@ -541,25 +655,207 @@ where
 fn translate_if_expr(if_: &ExprIf, scope: &mut Scope, env: &mut Env) -> syn::Result<TokenStream>
 where
 {
-    env.create_trait_by_prefix("If", |env, name, builder| -> syn::Result<()> {
-        let ExprIf {
-            cond,
-            then_branch,
-            else_branch,
-            ..
-        } = if_;
+    let ExprIf {
+        cond,
+        then_branch,
+        else_branch,
+        ..
+    } = if_;
 
-        let cond = translate_expr(&*cond, scope, env)?;
-        let eq_trait = quote! { core::op::Eq< typenum::B1 };
-        let cond_ty = quote! { < #cond as #eq_trait >::Output };
+    let free_quantifiers = scope.free_quantifiers();
+    let mutable_quantifiers = scope.mutable_quantifiers();
+    let generics: Vec<_> = free_quantifiers.keys().collect();
 
-        // add trait bound
-        scope.insert_trait_bounds(cond, eq_trait);
+    // generate predicate tokens
+    let cond_ty = translate_expr(&*cond, scope, env)?;
+    let eq_trait = quote! { core::op::Eq<typenum::B1> };
+    let cond_predicate = quote! { < #cond_ty as #eq_trait >::Output };
 
-        Ok(())
-    })?;
+    // add trait bound
+    scope.insert_trait_bounds(cond_ty, eq_trait);
 
-    todo!();
+    // generate trait names
+    let if_trait_name = env
+        .register_trait_name("If")
+        .expect("the trait name cannot proper prefix of existing trait names");
+
+    let side_effect_trait_names: HashMap<_, _> = mutable_quantifiers
+        .iter()
+        .map(|(_ident, Variable { id: var_id, .. })| {
+            let trait_name = env
+                .register_trait_name("IfSideEffect")
+                .expect("please report bug: accidentally using a proper prefix");
+            (var_id, trait_name)
+        })
+        .collect();
+
+    // generate traits
+    let if_trait_item = quote! {
+        trait #if_trait_name < #(#generics),* , __> {
+            type Output;
+        }
+    };
+
+    let side_effect_trait_items: Vec<_> = side_effect_trait_names
+        .iter()
+        .map(|(_var_id, trait_name)| {
+            quote! {
+                trait #trait_name < #(#generics),* , __> {
+                    type Output;
+                }
+            }
+        })
+        .collect();
+
+    // generate impl items
+    let impls: Vec<_> = match else_branch {
+        Some((_else, else_expr)) => {
+            let if_impls: Vec<_> = {
+                let mut branched_scope = scope.clone();
+                let then_tokens = translate_block(then_branch, &mut branched_scope, env)?;
+
+                let body_impl = quote! {
+                    impl< #(#generics),* > #if_trait_name<#(#generics),* , typenum::B1> for () {
+                        type Output = #then_tokens;
+                    }
+                };
+
+                let side_effect_impls: Vec<_> = mutable_quantifiers
+                .iter()
+                .map(|(_ident, Variable { id: var_id, .. })| {
+                    let trait_name = &side_effect_trait_names[var_id];
+                    let value = branched_scope
+                        .get_variable(var_id)
+                        .expect("please report bug: the variable is missing")
+                        .value;
+
+                    quote! {
+                        impl< #(#generics),* > #trait_name<#(#generics),* , typenum::B1> for () {
+                            type Output = #value;
+                        }
+                    }
+                })
+                    .collect();
+
+                iter::once(body_impl).chain(side_effect_impls).collect()
+            };
+
+            let else_impls: Vec<_> = {
+                let mut branched_scope = scope.clone();
+                let else_tokens = translate_expr(&**else_expr, &mut branched_scope, env)?;
+
+                let body_impl = quote! {
+                    impl< #(#generics),* > #if_trait_name<#(#generics),* , typenum::B0> for () {
+                        type Output = #else_tokens;
+                    }
+                };
+
+                let side_effect_impls: Vec<_> = mutable_quantifiers
+                .iter()
+                .map(|(_ident, Variable { id: var_id, .. })| {
+                    let trait_name = &side_effect_trait_names[var_id];
+                    let value = branched_scope
+                        .get_variable(var_id)
+                        .expect("please report bug: the variable is missing")
+                        .value;
+
+                    quote! {
+                        impl< #(#generics),* > #trait_name<#(#generics),* , typenum::B0> for () {
+                            type Output = #value;
+                        }
+                    }
+                })
+                    .collect();
+
+                iter::once(body_impl).chain(side_effect_impls).collect()
+            };
+
+            if_impls.into_iter().chain(else_impls).collect()
+        }
+        None => {
+            let if_impls: Vec<_> = {
+                let mut branched_scope = scope.clone();
+                let then_tokens = translate_block(then_branch, &mut branched_scope, env)?;
+
+                let body_impl = quote! {
+                    impl< #(#generics),* > #if_trait_name<#(#generics),* , typenum::B1> for () {
+                        type Output = ();
+                    }
+                };
+
+                let side_effect_impls: Vec<_> = mutable_quantifiers
+                .iter()
+                .map(|(_ident, Variable { id: var_id, .. })| {
+                    let trait_name = &side_effect_trait_names[var_id];
+                    let value = branched_scope
+                        .get_variable(var_id)
+                        .expect("please report bug: the variable is missing")
+                        .value;
+
+                    quote! {
+                        impl< #(#generics),* > #trait_name<#(#generics),* , typenum::B1> for () {
+                            type Output = #value;
+                        }
+                    }
+                })
+                    .collect();
+
+                iter::once(body_impl).chain(side_effect_impls).collect()
+            };
+
+            let else_impls: Vec<_> = {
+                let body_impl = quote! {
+                    impl< #(#generics),* > #if_trait_name<#(#generics),* , typenum::B0> for () {
+                        type Output = ();
+                    }
+                };
+
+                let side_effect_impls: Vec<_> = mutable_quantifiers
+                .iter()
+                .map(|(_ident, Variable { id: var_id, .. })| {
+                    let trait_name = &side_effect_trait_names[var_id];
+                    let value = scope
+                        .get_variable(var_id)
+                        .expect("please report bug: the variable is missing")
+                        .value;
+
+                    quote! {
+                        impl< #(#generics),* > #trait_name<#(#generics),* , typenum::B0> for () {
+                            type Output = #value;
+                        }
+                    }
+                })
+                    .collect();
+
+                iter::once(body_impl).chain(side_effect_impls).collect()
+            };
+
+            if_impls.into_iter().chain(else_impls).collect()
+        }
+    };
+
+    // add items to env
+    env.add_item(if_trait_item);
+    env.extend_items(side_effect_trait_items);
+    env.extend_items(impls);
+
+    // assign affected variables
+    for (ident, Variable { id: var_id, .. }) in mutable_quantifiers.iter() {
+        let trait_name = &side_effect_trait_names[var_id];
+        scope.assign_quantifier(
+            ident,
+            quote! {
+                < () as #trait_name < #(#generics),* , #cond_predicate > >::Output
+            },
+        )?;
+    }
+
+    // construct return type
+    let output = quote! {
+        < () as #if_trait_name < #(#generics),* , #cond_predicate > >::Output
+    };
+
+    Ok(output)
 }
 
 fn translate_block_expr(

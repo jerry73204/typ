@@ -41,17 +41,76 @@ mod scope {
             })
         }
 
+        pub fn mutable_quantifiers(&self) -> HashMap<Ident, Variable> {
+            let (_shadowed, found) = self.state().bounded_quantifiers.iter().rev().fold(
+                (HashSet::new(), HashMap::new()),
+                |state, quantifiers| {
+                    quantifiers
+                        .iter()
+                        .fold(state, |mut state, (ident, var_id)| {
+                            let (shadowed, found) = &mut state;
+
+                            // insert if the variable is not shadowed yet
+                            shadowed.get_or_insert_with(ident, |_| {
+                                let quantifier = self
+                                    .state()
+                                    .variables
+                                    .get(var_id)
+                                    .expect("please report bug: missing variable")
+                                    .to_owned();
+
+                                // add to result set if it is mutable
+                                if quantifier.is_mut {
+                                    found.insert(ident.to_owned(), quantifier);
+                                }
+
+                                ident.to_owned()
+                            });
+                            state
+                        })
+                },
+            );
+            found
+        }
+
+        pub fn free_quantifiers(&self) -> IndexMap<Ident, Variable> {
+            self.state()
+                .free_quantifiers
+                .iter()
+                .map(|(ident, var_id)| {
+                    let var = self
+                        .state()
+                        .variables
+                        .get(var_id)
+                        .expect("please report bug: missing variable")
+                        .to_owned();
+                    (ident.to_owned(), var)
+                })
+                .collect()
+        }
+
         pub fn shared_state(&mut self) -> SharedScopeState {
             self.state.clone()
         }
 
         pub fn get_var_id(&self, ident: &Ident) -> Option<usize> {
+            // search from bounded quantifiers
             for quantifiers in self.state().bounded_quantifiers.iter().rev() {
                 if let Some(id) = quantifiers.get(ident) {
                     return Some(*id);
                 }
             }
+
+            // search from free quantifiers
+            if let Some(id) = self.state().free_quantifiers.get(ident) {
+                return Some(*id);
+            }
+
             None
+        }
+
+        pub fn get_variable(&self, id: &usize) -> Option<Variable> {
+            self.state().variables.get(id).map(ToOwned::to_owned)
         }
 
         pub fn insert_free_quantifier(&mut self, ident: Ident) -> syn::Result<()> {
@@ -166,31 +225,6 @@ mod scope {
 
         pub fn trait_bounds_var_builder<'a>(&'a mut self) -> TraitBoundsVarBuilder<'a> {
             TraitBoundsVarBuilder::new(self)
-        }
-
-        pub fn visible_quantifiers(&self) -> HashMap<Ident, Variable> {
-            let (_shadowed, found) = self.state().bounded_quantifiers.iter().rev().fold(
-                (HashSet::new(), HashMap::new()),
-                |mut state, quantifiers| {
-                    quantifiers
-                        .iter()
-                        .fold(state, |mut state, (ident, var_id)| {
-                            let (shadowed, found) = &mut state;
-                            shadowed.get_or_insert_with(ident, |_| {
-                                let quantifier = self
-                                    .state()
-                                    .variables
-                                    .get(var_id)
-                                    .expect("please report bug: missing quantifier value")
-                                    .to_owned();
-                                found.insert(ident.to_owned(), quantifier);
-                                ident.to_owned()
-                            });
-                            state
-                        })
-                },
-            );
-            found
         }
 
         pub fn sub_scope<F, T>(&mut self, f: F) -> T
