@@ -9,9 +9,17 @@ pub use var_builder::*;
 mod scope {
     use super::*;
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug)]
     pub struct Scope {
         state: SharedScopeState,
+    }
+
+    impl Clone for Scope {
+        fn clone(&self) -> Self {
+            Self {
+                state: self.state.deep_clone(),
+            }
+        }
     }
 
     impl Scope {
@@ -300,6 +308,12 @@ mod scope {
 
         pub fn borrow_mut(&self) -> RefMut<ScopeState> {
             self.0.deref().deref().borrow_mut()
+        }
+
+        pub fn deep_clone(&self) -> Self {
+            Self(ByAddress(Rc::new(RefCell::new(
+                (**self.0).borrow().to_owned(),
+            ))))
         }
     }
 
