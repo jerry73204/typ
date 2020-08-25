@@ -590,7 +590,7 @@ where
     };
 
     let free_quantifiers = scope.free_quantifiers();
-    let mutable_quantifiers = scope.mutable_quantifiers();
+    let mutable_quantifiers: HashSet<_> = scope.mutable_quantifiers().keys().cloned().collect();
     let generics: Vec<_> = free_quantifiers.keys().collect();
 
     // generate trait names
@@ -600,11 +600,11 @@ where
 
     let side_effect_trait_names: HashMap<_, _> = mutable_quantifiers
         .iter()
-        .map(|(_ident, Variable { id: var_id, .. })| {
+        .map(|ident| {
             let trait_name = env
                 .register_trait_name(&format!("{}MatchSideEffect_", IDENT_PREFIX))
                 .expect("please report bug: accidentally using a proper prefix");
-            (var_id, trait_name)
+            (ident, trait_name)
         })
         .collect();
 
@@ -619,8 +619,8 @@ where
     };
 
     let side_effect_trait_items: Vec<_> = side_effect_trait_names
-        .iter()
-        .map(|(_var_id, trait_name)| {
+        .values()
+        .map(|trait_name| {
             quote! {
                 pub trait #trait_name < #(#generics),* , #placeholder_ident> {
                     type Output;
@@ -666,11 +666,11 @@ where
 
                 // impls for side effects
                 let side_effect_impls: Vec<_> = mutable_quantifiers
-                .iter()
-                .map(|(_ident, Variable { id: var_id, .. })| {
-                    let trait_name = &side_effect_trait_names[var_id];
+                    .iter()
+                .map(|ident| {
+                    let trait_name = &side_effect_trait_names[ident];
                     let value = branched_scope
-                        .get_variable(var_id)
+                        .get_quantifier(ident)
                         .expect("please report bug: the variable is missing")
                         .value;
 
@@ -708,8 +708,8 @@ where
     env.extend_items(impl_items);
 
     // assign affected variables
-    for (ident, Variable { id: var_id, .. }) in mutable_quantifiers.iter() {
-        let trait_name = &side_effect_trait_names[var_id];
+    for ident in mutable_quantifiers.iter() {
+        let trait_name = &side_effect_trait_names[ident];
         scope.assign_quantifier(
             ident,
             quote! {
@@ -853,7 +853,7 @@ where
     } = if_;
 
     let free_quantifiers = scope.free_quantifiers();
-    let mutable_quantifiers = scope.mutable_quantifiers();
+    let mutable_quantifiers: HashSet<_> = scope.mutable_quantifiers().keys().cloned().collect();
     let generics: Vec<_> = free_quantifiers.keys().collect();
 
     // generate trait names
@@ -863,11 +863,11 @@ where
 
     let side_effect_trait_names: HashMap<_, _> = mutable_quantifiers
         .iter()
-        .map(|(_ident, Variable { id: var_id, .. })| {
+        .map(|ident| {
             let trait_name = env
                 .register_trait_name(&format!("{}IfSideEffect_", IDENT_PREFIX))
                 .expect("please report bug: accidentally using a proper prefix");
-            (var_id, trait_name)
+            (ident, trait_name)
         })
         .collect();
 
@@ -881,8 +881,8 @@ where
     };
 
     let side_effect_trait_items: Vec<_> = side_effect_trait_names
-        .iter()
-        .map(|(_var_id, trait_name)| {
+        .values()
+        .map(|trait_name| {
             quote! {
                 pub trait #trait_name < #(#generics,)* #placeholder_ident> {
                     type Output;
@@ -892,8 +892,8 @@ where
         .collect();
 
     // generate impl items
-    // clone first to avoid unnecessary trait bounds
     let impls = {
+        // clone first to avoid unnecessary trait bounds
         let saved_scope = scope.clone();
 
         let impls: Vec<_> = match else_branch {
@@ -919,10 +919,10 @@ where
 
                     let side_effect_impls: Vec<_> = mutable_quantifiers
                         .iter()
-                        .map(|(_ident, Variable { id: var_id, .. })| {
-                            let trait_name = &side_effect_trait_names[var_id];
+                        .map(|ident| {
+                            let trait_name = &side_effect_trait_names[ident];
                             let value = branched_scope
-                                .get_variable(var_id)
+                                .get_quantifier(ident)
                                 .expect("please report bug: the variable is missing")
                                 .value;
                             let trait_pattern = quote! { #trait_name<#(#generics,)* typenum::B1> };
@@ -963,10 +963,10 @@ where
 
                     let side_effect_impls: Vec<_> = mutable_quantifiers
                         .iter()
-                        .map(|(_ident, Variable { id: var_id, .. })| {
-                            let trait_name = &side_effect_trait_names[var_id];
+                        .map(|ident| {
+                            let trait_name = &side_effect_trait_names[ident];
                             let value = branched_scope
-                                .get_variable(var_id)
+                                .get_quantifier(ident)
                                 .expect("please report bug: the variable is missing")
                                 .value;
                             let trait_pattern = quote! { #trait_name<#(#generics,)* typenum::B0> };
@@ -1011,10 +1011,10 @@ where
                     // insert trait bound
                     let side_effect_impls: Vec<_> = mutable_quantifiers
                         .iter()
-                        .map(|(_ident, Variable { id: var_id, .. })| {
-                            let trait_name = &side_effect_trait_names[var_id];
+                        .map(|ident| {
+                            let trait_name = &side_effect_trait_names[ident];
                             let value = branched_scope
-                                .get_variable(var_id)
+                                .get_quantifier(ident)
                                 .expect("please report bug: the variable is missing")
                                 .value;
                             let trait_pattern = quote! { #trait_name<#(#generics,)* typenum::B1> };
@@ -1056,10 +1056,10 @@ where
 
                     let side_effect_impls: Vec<_> = mutable_quantifiers
                         .iter()
-                        .map(|(_ident, Variable { id: var_id, .. })| {
-                            let trait_name = &side_effect_trait_names[var_id];
-                            let value = scope
-                                .get_variable(var_id)
+                        .map(|ident| {
+                            let trait_name = &side_effect_trait_names[ident];
+                            let value = saved_scope
+                                .get_quantifier(ident)
                                 .expect("please report bug: the variable is missing")
                                 .value;
                             let trait_pattern = quote! { #trait_name<#(#generics,)* typenum::B0> };
@@ -1102,8 +1102,8 @@ where
     };
 
     // assign affected variables
-    for (ident, Variable { id: var_id, .. }) in mutable_quantifiers.iter() {
-        let trait_name = &side_effect_trait_names[var_id];
+    for ident in mutable_quantifiers.iter() {
+        let trait_name = &side_effect_trait_names[ident];
         scope.assign_quantifier(
             ident,
             quote! {
@@ -1121,12 +1121,10 @@ where
     };
 
     // add trait bounds for side effect traits
-    side_effect_trait_names
-        .iter()
-        .for_each(|(_var_id, trait_name)| {
-            let trait_pattern = quote! { #trait_name < #(#generics,)* #cond_predicate > };
-            scope.insert_trait_bounds(quote! { () }, trait_pattern);
-        });
+    side_effect_trait_names.values().for_each(|trait_name| {
+        let trait_pattern = quote! { #trait_name < #(#generics,)* #cond_predicate > };
+        scope.insert_trait_bounds(quote! { () }, trait_pattern);
+    });
 
     // add items to env
     env.add_item(if_trait_item);

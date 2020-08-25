@@ -48,4 +48,25 @@ typ::typ! {
             -1
         }
     }
+
+    fn IfTest3<Cond>(Cond: typenum::Bit) {
+        let mut value = 0;
+
+        if Cond {
+            value = 1;
+        }
+        value
+    }
+
+    fn IfTest4<Cond>(Cond: typenum::Bit) {
+        let mut value = 0;
+
+        if Cond {
+            value = 1;
+        } else {
+            value = -1;
+        }
+
+        value
+    }
 }

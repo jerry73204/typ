@@ -121,8 +121,18 @@ mod scope {
             None
         }
 
-        pub fn get_variable(&self, id: &usize) -> Option<Variable> {
-            self.state().variables.get(id).map(ToOwned::to_owned)
+        pub fn get_quantifier(&self, ident: &Ident) -> Option<Variable> {
+            let state = self.state();
+
+            state
+                .bounded_quantifiers
+                .iter()
+                .rev()
+                .find_map(|quantifiers| {
+                    quantifiers
+                        .get(ident)
+                        .map(|var_id| state.variables[var_id].to_owned())
+                })
         }
 
         pub fn generate_trait_bounds_tokens(&self) -> TokenStream {
