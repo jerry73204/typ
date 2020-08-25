@@ -17,3 +17,6 @@ itertools = "0.9"
 radix_trie = "0.2"
 by_address = "1.0"
 indexmap = "1.5"
+
+[dev-dependencies]
+typenum = "1.12"

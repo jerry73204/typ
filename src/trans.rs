@@ -480,8 +480,78 @@ where
         Expr::Call(call) => translate_call_expr(call, scope, env),
         Expr::Paren(paren) => translate_expr(&paren.expr, scope, env),
         Expr::Assign(assign) => translate_assign_expr(&assign, scope, env),
+        Expr::Lit(lit) => translate_lit_expr(&lit, scope, env),
+        Expr::Unary(unary) => translate_unary_expr(&unary, scope, env),
         _ => Err(Error::new(expr.span(), "unsupported expression")),
     }
+}
+
+fn translate_unary_expr(
+    ExprUnary { op, expr, .. }: &ExprUnary,
+    scope: &mut Scope,
+    env: &mut Env,
+) -> syn::Result<TokenStream> {
+    let operand_ty = translate_expr(expr, scope, env)?;
+    let output_ty = match op {
+        UnOp::Neg(_) => {
+            let trait_ = quote! { core::ops::Neg };
+            let output = quote! { < #operand_ty as #trait_ > :: Output };
+            scope.insert_trait_bounds(operand_ty.clone(), trait_);
+            output
+        }
+        UnOp::Not(_) => {
+            let trait_ = quote! { core::ops::Not };
+            let output = quote! { < #operand_ty as #trait_ > :: Output };
+            scope.insert_trait_bounds(operand_ty, trait_);
+            output
+        }
+        _ => return Err(Error::new(op.span(), "unsupported unary operator")),
+    };
+
+    Ok(output_ty)
+}
+
+fn translate_lit_expr(
+    expr: &ExprLit,
+    _scope: &mut Scope,
+    _env: &mut Env,
+) -> syn::Result<TokenStream> {
+    let ExprLit { lit, .. } = expr;
+
+    let tokens = match lit {
+        Lit::Bool(LitBool { value, .. }) => {
+            if *value {
+                quote! { typenum::B1 }
+            } else {
+                quote! { typenum::B0 }
+            }
+        }
+        Lit::Int(int_) => match int_.suffix() {
+            "" | "i" => {
+                let value: u128 = int_.base10_parse()?;
+                if value == 0 {
+                    quote! { typenum::consts::Z0 }
+                } else {
+                    let ty = int_to_typenum(value);
+                    quote! { typenum::int::PInt<#ty> }
+                }
+            }
+            "u" => {
+                let value: u128 = int_.base10_parse()?;
+                let ty = int_to_typenum(value);
+                ty
+            }
+            "b" => match int_.base10_digits() {
+                "0" => quote! { typenum::bit::B0 },
+                "1" => quote! { typenum::bit::B1 },
+                _ => return Err(Error::new(int_.span(), "not a bit")),
+            },
+            _ => return Err(Error::new(int_.span(), "unsupported literal suffix")),
+        },
+        _ => return Err(Error::new(lit.span(), "unsupported literal")),
+    };
+
+    Ok(tokens)
 }
 
 fn translate_assign_expr(
@@ -1013,6 +1083,24 @@ where
     scope.insert_trait_bounds(quote! { () }, func_trait);
 
     Ok(output)
+}
+
+fn int_to_typenum(value: u128) -> TokenStream {
+    if value == 0 {
+        quote! {
+            typenum::uint::UTerm
+        }
+    } else if value & 1 == 1 {
+        let sub_tokens = int_to_typenum(value >> 1);
+        quote! {
+            typenum::uint::UInt<#sub_tokens, typenum::bit::B1>
+        }
+    } else {
+        let sub_tokens = int_to_typenum(value >> 1);
+        quote! {
+            typenum::uint::UInt<#sub_tokens, typenum::bit::B0>
+        }
+    }
 }
 
 // fn ty_to_trait_bounds(ty: &Type) -> syn::Result<Vec<&Path>>
