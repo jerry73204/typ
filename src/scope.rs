@@ -89,6 +89,10 @@ mod scope {
                 .collect()
         }
 
+        pub fn trait_bounds(&self) -> Ref<Vec<(TokenStream, TokenStream)>> {
+            Ref::map(self.state(), |state| &state.trait_bounds)
+        }
+
         pub fn shared_state(&mut self) -> SharedScopeState {
             self.state.clone()
         }
