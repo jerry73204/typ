@@ -764,31 +764,73 @@ where
     let left_ty = translate_expr(left, scope, env)?;
     let right_ty = translate_expr(right, scope, env)?;
 
-    let mut make_bin_op = |op: &'static str, left_ty: TokenStream, right_ty: TokenStream| {
-        let op = format_ident!("{}", op);
-        let trait_ = quote! {
-            core::ops::#op < #right_ty >
+    let std_bin_op =
+        |scope: &mut Scope, op_trait: TokenStream, left_ty: TokenStream, right_ty: TokenStream| {
+            let trait_pattern = quote! { #op_trait < #right_ty > };
+            let output = quote! {
+                < #left_ty as #trait_pattern > :: Output
+            };
+            scope.insert_trait_bounds(left_ty, trait_pattern);
+            output
         };
-        let output = quote! {
-            < #left_ty as #trait_ > :: Output
+
+    let typenum_bin_op =
+        |scope: &mut Scope, op_trait: TokenStream, left_ty: TokenStream, right_ty: TokenStream| {
+            let trait_pattern = quote! { #op_trait < #right_ty > };
+            let output = quote! {
+                < #left_ty as #trait_pattern > :: Output
+            };
+            scope.insert_trait_bounds(left_ty, trait_pattern);
+            scope.insert_trait_bounds(output.clone(), quote! { typenum::marker_traits::Bit });
+            output
         };
 
-        // add trait bound
-        scope.insert_trait_bounds(left_ty, trait_);
-
-        output
-    };
-
-    let out_ty = match op {
-        BinOp::Add(_) => make_bin_op("Add", left_ty, right_ty),
-        BinOp::Sub(_) => make_bin_op("Sub", left_ty, right_ty),
-        BinOp::Div(_) => make_bin_op("Div", left_ty, right_ty),
-        BinOp::Mul(_) => make_bin_op("Mul", left_ty, right_ty),
-        BinOp::And(_) => make_bin_op("BitAnd", left_ty, right_ty),
-        BinOp::Or(_) => make_bin_op("BitOr", left_ty, right_ty),
-        BinOp::BitAnd(_) => make_bin_op("BitAnd", left_ty, right_ty),
-        BinOp::BitOr(_) => make_bin_op("BitOr", left_ty, right_ty),
-        BinOp::BitXor(_) => make_bin_op("BitXor", left_ty, right_ty),
+    let output_ty = match op {
+        BinOp::Add(_) => std_bin_op(scope, quote! { core::ops::Add }, left_ty, right_ty),
+        BinOp::Sub(_) => std_bin_op(scope, quote! { core::ops::Sub }, left_ty, right_ty),
+        BinOp::Div(_) => std_bin_op(scope, quote! { core::ops::Div }, left_ty, right_ty),
+        BinOp::Mul(_) => std_bin_op(scope, quote! { core::ops::Mul }, left_ty, right_ty),
+        BinOp::And(_) => std_bin_op(scope, quote! { core::ops::BitAnd }, left_ty, right_ty),
+        BinOp::Or(_) => std_bin_op(scope, quote! { core::ops::BitOr }, left_ty, right_ty),
+        BinOp::BitAnd(_) => std_bin_op(scope, quote! { core::ops::BitAnd }, left_ty, right_ty),
+        BinOp::BitOr(_) => std_bin_op(scope, quote! { core::ops::BitOr }, left_ty, right_ty),
+        BinOp::BitXor(_) => std_bin_op(scope, quote! { core::ops::BitXor }, left_ty, right_ty),
+        BinOp::Lt(_) => typenum_bin_op(
+            scope,
+            quote! { typenum::type_operators::IsLess },
+            left_ty,
+            right_ty,
+        ),
+        BinOp::Gt(_) => typenum_bin_op(
+            scope,
+            quote! { typenum::type_operators::IsGreater },
+            left_ty,
+            right_ty,
+        ),
+        BinOp::Le(_) => typenum_bin_op(
+            scope,
+            quote! { typenum::type_operators::IsLessOrEqual },
+            left_ty,
+            right_ty,
+        ),
+        BinOp::Ge(_) => typenum_bin_op(
+            scope,
+            quote! { typenum::type_operators::IsGreaterOrEqual },
+            left_ty,
+            right_ty,
+        ),
+        BinOp::Eq(_) => typenum_bin_op(
+            scope,
+            quote! { typenum::type_operators::IsEqual },
+            left_ty,
+            right_ty,
+        ),
+        BinOp::Ne(_) => typenum_bin_op(
+            scope,
+            quote! { typenum::type_operators::IsNotEqual },
+            left_ty,
+            right_ty,
+        ),
         _ => {
             return Err(Error::new(
                 op.span(),
@@ -797,7 +839,7 @@ where
         }
     };
 
-    Ok(out_ty)
+    Ok(output_ty)
 }
 
 fn translate_if_expr(if_: &ExprIf, scope: &mut Scope, env: &mut Env) -> syn::Result<TokenStream>
@@ -1154,36 +1196,3 @@ fn int_to_typenum(value: u128) -> TokenStream {
         }
     }
 }
-
-// fn ty_to_trait_bounds(ty: &Type) -> syn::Result<Vec<&Path>>
-// where
-//
-// {
-//     let bounds = match ty {
-//         Type::Infer(_) => vec![],
-//         Type::Path(path) => vec![&path.path],
-//         Type::TraitObject(tobj) => {
-//             let paths = tobj
-//                 .bounds
-//                 .iter()
-//                 .map(|param_bound| match param_bound {
-//                     TypeParamBound::Trait(bound) => Ok(&bound.path),
-//                     TypeParamBound::Lifetime(lifetime) => {
-//                         Err(Error::new(lifetime.span(), "lifetime is not allowed"))
-//                     }
-//                 })
-//                 .try_collect()?;
-//             paths
-//         }
-//         _ => {
-//             return Err(Error::new(ty.span(), "not a trait bound"));
-//         }
-//     };
-
-//     Ok(bounds)
-// }
-
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-// }
