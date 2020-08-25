@@ -9,6 +9,7 @@ mod var;
 
 use crate::common::*;
 
+#[derive(Debug, Clone)]
 struct ItemVec(pub Vec<Item>);
 
 impl Parse for ItemVec {

@@ -11,8 +11,10 @@ pub fn translate_items(items: &[Item]) -> syn::Result<TokenStream> {
             let tokens = match item {
                 Item::Enum(enum_) => translate_enum(&enum_)?,
                 Item::Fn(fn_) => {
-                    let ItemFn { sig, block, .. } = fn_;
-                    translate_fn(sig, block, None)?
+                    let ItemFn {
+                        sig, block, vis, ..
+                    } = fn_;
+                    translate_fn(vis, sig, block, None)?
                 }
                 Item::Struct(struct_) => translate_struct(&struct_)?,
                 Item::Impl(impl_) => translate_impl(&impl_)?,
@@ -27,8 +29,6 @@ pub fn translate_items(items: &[Item]) -> syn::Result<TokenStream> {
     let expanded = quote! {
         #(#tokens_vec)*
     };
-
-    eprintln!("{}", expanded);
 
     Ok(expanded)
 }
@@ -182,7 +182,7 @@ fn translate_impl(impl_: &ItemImpl) -> syn::Result<TokenStream> {
                     let ImplItemMethod {
                         sig, block, vis, ..
                     } = method;
-                    translate_fn(sig, block, Some(trait_path))?
+                    translate_fn(vis, sig, block, Some(trait_path))?
                 }
                 _ => {
                     return Err(Error::new(item.span(), "unsupported item"));
@@ -198,6 +198,7 @@ fn translate_impl(impl_: &ItemImpl) -> syn::Result<TokenStream> {
 }
 
 fn translate_fn(
+    vis: &Visibility,
     sig: &Signature,
     block: &Block,
     self_ty: Option<&Path>,
@@ -236,15 +237,15 @@ fn translate_fn(
     let mut scope = Scope::new();
 
     // check if "self" is present in the input arguments and is consistent with impl block
-    let fn_self_ty = match (self_ty, inputs.first()) {
+    let self_ty_tokens = match (self_ty, inputs.first()) {
         (
             Some(self_ty),
             Some(FnArg::Receiver(Receiver {
                 reference: None, ..
             })),
-        ) => Some(self_ty),
+        ) => quote! { self_ty },
         (
-            Some(self_ty),
+            Some(_self_ty),
             Some(
                 receiver @ FnArg::Receiver(Receiver {
                     reference: Some(_), ..
@@ -257,7 +258,7 @@ fn translate_fn(
                 "self receiver is not accepted in the impl block without self trait",
             ))
         }
-        _ => None,
+        _ => quote! { () },
     };
 
     // translate function generics to initial quantifiers
@@ -308,9 +309,9 @@ fn translate_fn(
                 FnArg::Receiver(_) => None,
             })
             .map(|PatType { pat, ty, .. }| -> syn::Result<_> {
-                let ty_ = scope.type_var_builder().from_pat(&**pat)?;
+                let type_ = scope.type_var_builder().from_pat(&**pat)?;
                 let bounds = scope.trait_bounds_var_builder().from_type(&**ty)?;
-                Ok((quote! { #ty }, quote! { #bounds }))
+                Ok((quote! { #type_ }, quote! { #bounds }))
             })
             .try_collect()?;
 
@@ -324,20 +325,17 @@ fn translate_fn(
 
     // translate output type to trait bound
     let output_bounds = match output {
-        ReturnType::Default => scope.trait_bounds_var_builder().empty(),
-        ReturnType::Type(_, ty) => scope.trait_bounds_var_builder().from_type(ty)?,
+        ReturnType::Default => None,
+        ReturnType::Type(_, ty) => Some(scope.trait_bounds_var_builder().from_type(ty)?),
     };
 
-    // add module of the same name
-    let mut sub_env = env
-        .create_mod(fn_name.clone())
-        .expect("please report bug: a mod is created twice");
-
     // translate block
-    let block_tokens = translate_block(&block, &mut scope, &mut sub_env)?;
+    let block_tokens = translate_block(&block, &mut scope, &mut env)?;
 
     // insert trait bound for output type
-    scope.insert_trait_bounds(quote! { Self::Output }, quote! { #output_bounds });
+    if let Some(bounds) = &output_bounds {
+        scope.insert_trait_bounds(quote! { #block_tokens }, quote! { #bounds });
+    }
 
     // generate trait bounds tokens
     let trait_bounds_tokens: Vec<_> = scope
@@ -355,8 +353,15 @@ fn translate_fn(
             .enumerate()
             .map(|(idx, _)| format_ident!("_{}", idx))
             .collect();
+        let output_bounds_tokens = output_bounds
+            .as_ref()
+            .map(|bounds| quote! { Self::Output : #bounds });
+
         quote! {
-            trait #fn_name < #(#place_holders),* > {
+            #vis trait #fn_name < #(#place_holders),* >
+            where
+                #output_bounds_tokens
+            {
                 type Output;
             }
         }
@@ -364,11 +369,10 @@ fn translate_fn(
 
     // generate impl
     let impl_tokens = {
-        let for_self = fn_self_ty.map(|self_ty| quote! { for #self_ty });
         let input_types: Vec<_> = fn_args.iter().map(|(ty, _bounds)| ty).collect();
 
         quote! {
-            impl< #(#generic_idents),* >  #fn_name< #(#input_types),* > #for_self
+            impl< #(#generic_idents),* >  #fn_name< #(#input_types),* > for #self_ty_tokens
             where
                 #(#trait_bounds_tokens),*
             {
@@ -378,9 +382,8 @@ fn translate_fn(
     };
 
     // generate output tokens
-    sub_env.add_item(trait_tokens);
-    sub_env.add_item(impl_tokens);
-    env.add_item(quote! { pub use #fn_name :: #fn_name; });
+    env.add_item(trait_tokens);
+    env.add_item(impl_tokens);
 
     Ok(quote! { #env })
 }
@@ -388,7 +391,7 @@ fn translate_fn(
 fn translate_block(block: &Block, scope: &mut Scope, env: &mut Env) -> syn::Result<TokenStream>
 where
 {
-    let mut output_value = None;
+    let mut output_ty = None;
 
     // creates a subscope
     scope.sub_scope(|scope| {
@@ -449,14 +452,11 @@ where
                     return Err(Error::new(item.span(), "in-block item is not allowed"))
                 }
                 Stmt::Expr(expr) => {
-                    assert!(
-                        matches!(output_value, None),
-                        "please report bug: output type is set more than once"
-                    );
-                    output_value = Some(translate_expr(expr, scope, env)?);
+                    output_ty = Some(translate_expr(expr, scope, env)?);
                 }
                 Stmt::Semi(expr, _semi) => {
                     translate_expr(expr, scope, env)?;
+                    output_ty = Some(quote! { () });
                 }
             }
         }
@@ -464,7 +464,7 @@ where
         Ok(())
     })?;
 
-    Ok(output_value.unwrap_or_else(|| quote! { () }))
+    Ok(output_ty.unwrap_or_else(|| quote! { () }))
 }
 
 fn translate_expr(expr: &Expr, scope: &mut Scope, env: &mut Env) -> syn::Result<TokenStream>
@@ -699,11 +699,12 @@ where
     let right_ty = translate_expr(right, scope, env)?;
 
     let mut make_bin_op = |op: &'static str, left_ty: TokenStream, right_ty: TokenStream| {
+        let op = format_ident!("{}", op);
         let trait_ = quote! {
-            core::op::#op < #right_ty >
+            core::ops::#op < #right_ty >
         };
         let output = quote! {
-            < #left_ty as #trait_ >::Output
+            < #left_ty as #trait_ > :: Output
         };
 
         // add trait bound
@@ -717,8 +718,8 @@ where
         BinOp::Sub(_) => make_bin_op("Sub", left_ty, right_ty),
         BinOp::Div(_) => make_bin_op("Div", left_ty, right_ty),
         BinOp::Mul(_) => make_bin_op("Mul", left_ty, right_ty),
-        BinOp::And(_) => make_bin_op("And", left_ty, right_ty),
-        BinOp::Or(_) => make_bin_op("Or", left_ty, right_ty),
+        BinOp::And(_) => make_bin_op("BitAnd", left_ty, right_ty),
+        BinOp::Or(_) => make_bin_op("BitOr", left_ty, right_ty),
         BinOp::BitAnd(_) => make_bin_op("BitAnd", left_ty, right_ty),
         BinOp::BitOr(_) => make_bin_op("BitOr", left_ty, right_ty),
         BinOp::BitXor(_) => make_bin_op("BitXor", left_ty, right_ty),
@@ -749,7 +750,7 @@ where
 
     // generate predicate tokens
     let cond_ty = translate_expr(&*cond, scope, env)?;
-    let eq_trait = quote! { core::op::Eq<typenum::B1> };
+    let eq_trait = quote! { core::ops::Eq<typenum::B1> };
     let cond_predicate = quote! { < #cond_ty as #eq_trait >::Output };
 
     // add trait bound
