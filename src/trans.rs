@@ -234,6 +234,10 @@ fn translate_fn(
 
     // create root scope and env
     let mut env = Env::new();
+    let mod_name = format_ident!("{}mod_{}", IDENT_PREFIX, fn_name);
+    let mut sub_env = env
+        .create_mod(mod_name.clone())
+        .expect("please report bug: the mod name is taken");
     let mut scope = Scope::new();
 
     // check if "self" is present in the input arguments and is consistent with impl block
@@ -243,7 +247,7 @@ fn translate_fn(
             Some(FnArg::Receiver(Receiver {
                 reference: None, ..
             })),
-        ) => quote! { self_ty },
+        ) => quote! { #self_ty },
         (
             Some(_self_ty),
             Some(
@@ -330,7 +334,7 @@ fn translate_fn(
     };
 
     // translate block
-    let block_tokens = translate_block(&block, &mut scope, &mut env)?;
+    let block_tokens = translate_block(&block, &mut scope, &mut sub_env)?;
 
     // insert trait bound for output type
     if let Some(bounds) = &output_bounds {
@@ -338,27 +342,21 @@ fn translate_fn(
     }
 
     // generate trait bounds tokens
-    let trait_bounds_tokens: Vec<_> = scope
-        .trait_bounds()
-        .iter()
-        .map(|(predicate, bounds)| {
-            quote! { #predicate: #bounds }
-        })
-        .collect();
+    let trait_bounds_tokens = scope.generate_trait_bounds_tokens();
 
     // generate trait
     let trait_tokens = {
         let place_holders: Vec<_> = fn_args
             .iter()
             .enumerate()
-            .map(|(idx, _)| format_ident!("_{}", idx))
+            .map(|(idx, _)| format_ident!("{}{}", IDENT_PREFIX, idx))
             .collect();
         let output_bounds_tokens = output_bounds
             .as_ref()
             .map(|bounds| quote! { Self::Output : #bounds });
 
         quote! {
-            #vis trait #fn_name < #(#place_holders),* >
+            pub trait #fn_name < #(#place_holders),* >
             where
                 #output_bounds_tokens
             {
@@ -374,7 +372,7 @@ fn translate_fn(
         quote! {
             impl< #(#generic_idents),* >  #fn_name< #(#input_types),* > for #self_ty_tokens
             where
-                #(#trait_bounds_tokens),*
+                #trait_bounds_tokens
             {
                 type Output = #block_tokens;
             }
@@ -382,8 +380,10 @@ fn translate_fn(
     };
 
     // generate output tokens
-    env.add_item(trait_tokens);
-    env.add_item(impl_tokens);
+    sub_env.add_item(quote! { use super::*; });
+    sub_env.add_item(trait_tokens);
+    sub_env.add_item(impl_tokens);
+    env.add_item(quote! { #vis use #mod_name :: #fn_name ; });
 
     Ok(quote! { #env })
 }
@@ -595,14 +595,14 @@ where
 
     // generate trait names
     let match_trait_name = env
-        .register_trait_name("MatchArm")
+        .register_trait_name(&format!("{}MatchArm_", IDENT_PREFIX))
         .expect("the trait name cannot proper prefix of existing trait names");
 
     let side_effect_trait_names: HashMap<_, _> = mutable_quantifiers
         .iter()
         .map(|(_ident, Variable { id: var_id, .. })| {
             let trait_name = env
-                .register_trait_name("MatchSideEffect")
+                .register_trait_name(&format!("{}MatchSideEffect_", IDENT_PREFIX))
                 .expect("please report bug: accidentally using a proper prefix");
             (var_id, trait_name)
         })
@@ -610,8 +610,10 @@ where
 
     // generate trait items
     // TODO: avoid name collision on generics
+    let placeholder_ident = format_ident!("{}PLACEHOLDER", IDENT_PREFIX);
+
     let match_trait_item = quote! {
-        trait #match_trait_name < #(#generics),* , __> {
+        pub trait #match_trait_name < #(#generics),* , #placeholder_ident> {
             type Output;
         }
     };
@@ -620,7 +622,7 @@ where
         .iter()
         .map(|(_var_id, trait_name)| {
             quote! {
-                trait #trait_name < #(#generics),* , __> {
+                pub trait #trait_name < #(#generics),* , #placeholder_ident> {
                     type Output;
                 }
             }
@@ -644,19 +646,13 @@ where
                     quote! { #ty }
                 };
                 let body_tokens = translate_expr(body, &mut branched_scope, env)?;
-                let trait_bounds_tokens: Vec<_> = branched_scope
-                    .trait_bounds()
-                    .iter()
-                    .map(|(predicate, bounds)| {
-                        quote! { #predicate: #bounds }
-                    })
-                    .collect();
+                let trait_bounds_tokens = branched_scope.generate_trait_bounds_tokens();
 
                 // impl item for matched type
                 let match_impl = quote! {
                     impl< #(#generics),* > #match_trait_name<#(#generics),* , #pat_tokens> for ()
                     where
-                        #(#trait_bounds_tokens),*
+                        #trait_bounds_tokens
                     {
                         type Output = #body_tokens;
                     }
@@ -687,7 +683,7 @@ where
                     quote! {
                         impl< #(#generics),* > #trait_name< #(#generics),* , #pat_tokens > for ()
                         where
-                            #(#trait_bounds_tokens),*
+                            #trait_bounds_tokens
                         {
                             type Output = #value;
                         }
@@ -818,32 +814,26 @@ where
     let mutable_quantifiers = scope.mutable_quantifiers();
     let generics: Vec<_> = free_quantifiers.keys().collect();
 
-    // generate predicate tokens
-    let cond_ty = translate_expr(&*cond, scope, env)?;
-    let eq_trait = quote! { core::ops::Eq<typenum::B1> };
-    let cond_predicate = quote! { < #cond_ty as #eq_trait >::Output };
-
-    // add trait bound
-    scope.insert_trait_bounds(cond_ty, eq_trait);
-
     // generate trait names
     let if_trait_name = env
-        .register_trait_name("If")
+        .register_trait_name(&format!("{}If_", IDENT_PREFIX))
         .expect("the trait name cannot proper prefix of existing trait names");
 
     let side_effect_trait_names: HashMap<_, _> = mutable_quantifiers
         .iter()
         .map(|(_ident, Variable { id: var_id, .. })| {
             let trait_name = env
-                .register_trait_name("IfSideEffect")
+                .register_trait_name(&format!("{}IfSideEffect_", IDENT_PREFIX))
                 .expect("please report bug: accidentally using a proper prefix");
             (var_id, trait_name)
         })
         .collect();
 
     // generate traits
+    let placeholder_ident = format_ident!("{}PLACEHOLDER", IDENT_PREFIX);
+
     let if_trait_item = quote! {
-        trait #if_trait_name < #(#generics),* , __> {
+        pub trait #if_trait_name < #(#generics,)* #placeholder_ident > {
             type Output;
         }
     };
@@ -852,7 +842,7 @@ where
         .iter()
         .map(|(_var_id, trait_name)| {
             quote! {
-                trait #trait_name < #(#generics),* , __> {
+                pub trait #trait_name < #(#generics,)* #placeholder_ident> {
                     type Output;
                 }
             }
@@ -862,25 +852,28 @@ where
     // generate impl items
     // clone first to avoid unnecessary trait bounds
     let impls = {
-        let branched_scope = scope.clone();
+        let saved_scope = scope.clone();
 
         let impls: Vec<_> = match else_branch {
             Some((_else, else_expr)) => {
                 let if_impls: Vec<_> = {
-                    let mut branched_scope = branched_scope.clone();
+                    let mut branched_scope = saved_scope.clone();
                     let then_tokens = translate_block(then_branch, &mut branched_scope, env)?;
+                    let trait_bounds_tokens = branched_scope.generate_trait_bounds_tokens();
 
-                    let body_impl = quote! {
-                        impl< #(#generics),* > #if_trait_name<#(#generics),* , typenum::B1> for () {
-                            type Output = #then_tokens;
-                        }
+                    let body_impl = {
+                        let trait_pattern = quote! { #if_trait_name<#(#generics,)* typenum::B1> };
+                        let impl_ = quote! {
+                            impl< #(#generics),* > #trait_pattern for ()
+                            where
+                                #trait_bounds_tokens
+                            {
+                                type Output = #then_tokens;
+                            }
+                        };
+                        scope.insert_trait_bounds(quote! { () }, trait_pattern);
+                        impl_
                     };
-
-                    // add trait bound
-                    scope.insert_trait_bounds(
-                        quote! { () },
-                        quote! { #if_trait_name<#(#generics),* , typenum::B1> },
-                    );
 
                     let side_effect_impls: Vec<_> = mutable_quantifiers
                         .iter()
@@ -890,19 +883,17 @@ where
                                 .get_variable(var_id)
                                 .expect("please report bug: the variable is missing")
                                 .value;
-
-                            // add trait bound
-                            scope.insert_trait_bounds(
-                                quote!{ () },
-                                quote!{ #trait_name<#(#generics),* , typenum::B1> }
-                            );
-
-
-                            quote! {
-                                impl< #(#generics),* > #trait_name<#(#generics),* , typenum::B1> for () {
+                            let trait_pattern = quote! { #trait_name<#(#generics,)* typenum::B1> };
+                            let impl_ = quote! {
+                                impl< #(#generics),* > #trait_pattern for ()
+                                where
+                                    #trait_bounds_tokens
+                                {
                                     type Output = #value;
                                 }
-                            }
+                            };
+                            scope.insert_trait_bounds(quote! { () }, trait_pattern.clone());
+                            impl_
                         })
                         .collect();
 
@@ -910,20 +901,23 @@ where
                 };
 
                 let else_impls: Vec<_> = {
-                    let mut branched_scope = scope.clone();
+                    let mut branched_scope = saved_scope.clone();
                     let else_tokens = translate_expr(&**else_expr, &mut branched_scope, env)?;
+                    let trait_bounds_tokens = branched_scope.generate_trait_bounds_tokens();
 
-                    let body_impl = quote! {
-                        impl< #(#generics),* > #if_trait_name<#(#generics),* , typenum::B0> for () {
-                            type Output = #else_tokens;
-                        }
+                    let body_impl = {
+                        let trait_pattern = quote! { #if_trait_name<#(#generics,)* typenum::B0> };
+                        let body_impl = quote! {
+                            impl< #(#generics),* > #trait_pattern for ()
+                            where
+                                #trait_bounds_tokens
+                            {
+                                type Output = #else_tokens;
+                            }
+                        };
+                        scope.insert_trait_bounds(quote! { () }, trait_pattern);
+                        body_impl
                     };
-
-                    // add trait bound
-                    scope.insert_trait_bounds(
-                        quote! { () },
-                        quote! { #if_trait_name<#(#generics),* , typenum::B0> },
-                    );
 
                     let side_effect_impls: Vec<_> = mutable_quantifiers
                         .iter()
@@ -933,18 +927,17 @@ where
                                 .get_variable(var_id)
                                 .expect("please report bug: the variable is missing")
                                 .value;
-
-                            // add trait bound
-                            scope.insert_trait_bounds(
-                                quote!{ () },
-                                quote!{ #trait_name<#(#generics),* , typenum::B0> }
-                            );
-
-                            quote! {
-                                impl< #(#generics),* > #trait_name<#(#generics),* , typenum::B0> for () {
+                            let trait_pattern = quote! { #trait_name<#(#generics,)* typenum::B0> };
+                            let impl_ = quote! {
+                                impl< #(#generics),* > #trait_pattern for ()
+                                where
+                                    #trait_bounds_tokens
+                                {
                                     type Output = #value;
                                 }
-                            }
+                            };
+                            scope.insert_trait_bounds(quote! { () }, trait_pattern);
+                            impl_
                         })
                         .collect();
 
@@ -955,15 +948,25 @@ where
             }
             None => {
                 let if_impls: Vec<_> = {
-                    let mut branched_scope = scope.clone();
-                    let then_tokens = translate_block(then_branch, &mut branched_scope, env)?;
+                    let mut branched_scope = saved_scope.clone();
+                    let _then_tokens = translate_block(then_branch, &mut branched_scope, env)?;
+                    let trait_bounds_tokens = branched_scope.generate_trait_bounds_tokens();
 
-                    let body_impl = quote! {
-                        impl< #(#generics),* > #if_trait_name<#(#generics),* , typenum::B1> for () {
-                            type Output = ();
-                        }
+                    let body_impl = {
+                        let trait_pattern = quote! { #if_trait_name<#(#generics,)* typenum::B1> };
+                        let impl_ = quote! {
+                            impl< #(#generics),* > #trait_pattern for ()
+                            where
+                                #trait_bounds_tokens
+                            {
+                                type Output = ();
+                            }
+                        };
+                        scope.insert_trait_bounds(quote! { () }, trait_pattern);
+                        impl_
                     };
 
+                    // insert trait bound
                     let side_effect_impls: Vec<_> = mutable_quantifiers
                         .iter()
                         .map(|(_ident, Variable { id: var_id, .. })| {
@@ -972,12 +975,20 @@ where
                                 .get_variable(var_id)
                                 .expect("please report bug: the variable is missing")
                                 .value;
-
-                            quote! {
-                                impl< #(#generics),* > #trait_name<#(#generics),* , typenum::B1> for () {
+                            let trait_pattern = quote! { #trait_name<#(#generics,)* typenum::B1> };
+                            let impl_ = quote! {
+                                impl< #(#generics),* > #trait_pattern for ()
+                                where
+                                    #trait_bounds_tokens
+                                {
                                     type Output = #value;
                                 }
-                            }
+                            };
+
+                            // add trait bound
+                            scope.insert_trait_bounds(quote! { () }, trait_pattern);
+
+                            impl_
                         })
                         .collect();
 
@@ -985,10 +996,20 @@ where
                 };
 
                 let else_impls: Vec<_> = {
-                    let body_impl = quote! {
-                        impl< #(#generics),* > #if_trait_name<#(#generics),* , typenum::B0> for () {
-                            type Output = ();
-                        }
+                    let trait_bounds_tokens = saved_scope.generate_trait_bounds_tokens();
+
+                    let body_impl = {
+                        let trait_pattern = quote! { #if_trait_name<#(#generics,)* typenum::B0> };
+                        let impl_ = quote! {
+                            impl< #(#generics),* > #trait_pattern for ()
+                            where
+                                #trait_bounds_tokens
+                            {
+                                type Output = ();
+                            }
+                        };
+                        scope.insert_trait_bounds(quote! { () }, trait_pattern);
+                        impl_
                     };
 
                     let side_effect_impls: Vec<_> = mutable_quantifiers
@@ -999,12 +1020,17 @@ where
                                 .get_variable(var_id)
                                 .expect("please report bug: the variable is missing")
                                 .value;
-
-                            quote! {
-                                impl< #(#generics),* > #trait_name<#(#generics),* , typenum::B0> for () {
+                            let trait_pattern = quote! { #trait_name<#(#generics,)* typenum::B0> };
+                            let impl_ = quote! {
+                                impl< #(#generics),* > #trait_pattern for ()
+                                where
+                                    #trait_bounds_tokens
+                                {
                                     type Output = #value;
                                 }
-                            }
+                            };
+                            scope.insert_trait_bounds(quote! { () }, trait_pattern);
+                            impl_
                         })
                         .collect();
 
@@ -1018,10 +1044,20 @@ where
         impls
     };
 
-    // add items to env
-    env.add_item(if_trait_item);
-    env.extend_items(side_effect_trait_items);
-    env.extend_items(impls);
+    // generate predicate tokens
+    let cond_predicate = {
+        let cond_ty = translate_expr(&*cond, scope, env)?;
+        let eq_trait = quote! { typenum::type_operators::IsEqual<typenum::B1> };
+        let cond_predicate = quote! { < #cond_ty as #eq_trait >::Output };
+
+        scope.insert_trait_bounds(cond_ty, eq_trait);
+        scope.insert_trait_bounds(
+            cond_predicate.clone(),
+            quote! { typenum::marker_traits::Bit },
+        );
+
+        cond_predicate
+    };
 
     // assign affected variables
     for (ident, Variable { id: var_id, .. }) in mutable_quantifiers.iter() {
@@ -1029,15 +1065,31 @@ where
         scope.assign_quantifier(
             ident,
             quote! {
-                < () as #trait_name < #(#generics),* , #cond_predicate > >::Output
+                < () as #trait_name < #(#generics,)* #cond_predicate > >::Output
             },
         )?;
     }
 
     // construct return type
-    let output = quote! {
-        < () as #if_trait_name < #(#generics),* , #cond_predicate > >::Output
+    let output = {
+        let trait_pattern = quote! { #if_trait_name < #(#generics,)* #cond_predicate > };
+        let output = quote! { < () as #trait_pattern >::Output };
+        scope.insert_trait_bounds(quote! { () }, trait_pattern);
+        output
     };
+
+    // add trait bounds for side effect traits
+    side_effect_trait_names
+        .iter()
+        .for_each(|(_var_id, trait_name)| {
+            let trait_pattern = quote! { #trait_name < #(#generics,)* #cond_predicate > };
+            scope.insert_trait_bounds(quote! { () }, trait_pattern);
+        });
+
+    // add items to env
+    env.add_item(if_trait_item);
+    env.extend_items(side_effect_trait_items);
+    env.extend_items(impls);
 
     Ok(output)
 }

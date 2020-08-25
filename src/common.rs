@@ -30,3 +30,5 @@ pub use syn::{
     PathSegment, QSelf, Receiver, ReturnType, Signature, Stmt, TraitBound, TraitBoundModifier,
     Type, TypeParam, TypeParamBound, TypeParen, TypePath, TypeTuple, UnOp, Variant, Visibility,
 };
+
+pub const IDENT_PREFIX: &str = "__TYP_GENERATED_";

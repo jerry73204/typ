@@ -117,6 +117,18 @@ mod scope {
             self.state().variables.get(id).map(ToOwned::to_owned)
         }
 
+        pub fn generate_trait_bounds_tokens(&self) -> TokenStream {
+            let bounds: Vec<_> = self
+                .state()
+                .trait_bounds
+                .iter()
+                .map(|(predicate, bounds)| {
+                    quote! { #predicate: #bounds }
+                })
+                .collect();
+            quote! { #(#bounds),* }
+        }
+
         pub fn insert_free_quantifier(&mut self, ident: Ident) -> syn::Result<()> {
             // check if the identifier is already taken
             if self.state_mut().free_quantifiers.contains_key(&ident) {
