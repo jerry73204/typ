@@ -14,8 +14,24 @@ where
         ..
     } = if_;
 
-    let free_quantifiers = scope.free_quantifiers();
+    // generate predicate tokens
+    let cond_predicate = {
+        let cond_ty = translate_expr(&*cond, scope, env)?;
+        let eq_trait = quote! { typenum::type_operators::IsEqual<typenum::B1> };
+        let cond_predicate = quote! { < #cond_ty as #eq_trait >::Output };
+
+        scope.insert_trait_bounds(cond_ty, eq_trait);
+        scope.insert_trait_bounds(
+            cond_predicate.clone(),
+            quote! { typenum::marker_traits::Bit },
+        );
+
+        cond_predicate
+    };
+
+    // save quantifiers (after condition expr)
     let mutable_quantifiers: HashSet<_> = scope.mutable_quantifiers().keys().cloned().collect();
+    let free_quantifiers = scope.free_quantifiers();
     let generics: Vec<_> = free_quantifiers.keys().collect();
 
     // generate trait names
@@ -75,7 +91,6 @@ where
                                 type Output = #then_tokens;
                             }
                         };
-                        scope.insert_trait_bounds(quote! { () }, trait_pattern);
                         impl_
                     };
 
@@ -96,7 +111,6 @@ where
                                     type Output = #value;
                                 }
                             };
-                            scope.insert_trait_bounds(quote! { () }, trait_pattern.clone());
                             impl_
                         })
                         .collect();
@@ -119,7 +133,6 @@ where
                                 type Output = #else_tokens;
                             }
                         };
-                        scope.insert_trait_bounds(quote! { () }, trait_pattern);
                         body_impl
                     };
 
@@ -140,7 +153,6 @@ where
                                     type Output = #value;
                                 }
                             };
-                            scope.insert_trait_bounds(quote! { () }, trait_pattern);
                             impl_
                         })
                         .collect();
@@ -166,7 +178,6 @@ where
                                 type Output = ();
                             }
                         };
-                        scope.insert_trait_bounds(quote! { () }, trait_pattern);
                         impl_
                     };
 
@@ -188,10 +199,6 @@ where
                                     type Output = #value;
                                 }
                             };
-
-                            // add trait bound
-                            scope.insert_trait_bounds(quote! { () }, trait_pattern);
-
                             impl_
                         })
                         .collect();
@@ -212,7 +219,6 @@ where
                                 type Output = ();
                             }
                         };
-                        scope.insert_trait_bounds(quote! { () }, trait_pattern);
                         impl_
                     };
 
@@ -233,7 +239,6 @@ where
                                     type Output = #value;
                                 }
                             };
-                            scope.insert_trait_bounds(quote! { () }, trait_pattern);
                             impl_
                         })
                         .collect();
@@ -248,30 +253,17 @@ where
         impls
     };
 
-    // generate predicate tokens
-    let cond_predicate = {
-        let cond_ty = translate_expr(&*cond, scope, env)?;
-        let eq_trait = quote! { typenum::type_operators::IsEqual<typenum::B1> };
-        let cond_predicate = quote! { < #cond_ty as #eq_trait >::Output };
-
-        scope.insert_trait_bounds(cond_ty, eq_trait);
-        scope.insert_trait_bounds(
-            cond_predicate.clone(),
-            quote! { typenum::marker_traits::Bit },
-        );
-
-        cond_predicate
-    };
-
     // assign affected variables
     for ident in mutable_quantifiers.iter() {
         let trait_name = &side_effect_trait_names[ident];
+        let trait_pattern = quote! { #trait_name < #(#generics,)* #cond_predicate > };
         scope.assign_quantifier(
             ident,
             quote! {
                 < () as #trait_name < #(#generics,)* #cond_predicate > >::Output
             },
         )?;
+        scope.insert_trait_bounds(quote! { () }, trait_pattern);
     }
 
     // construct return type
@@ -281,12 +273,6 @@ where
         scope.insert_trait_bounds(quote! { () }, trait_pattern);
         output
     };
-
-    // add trait bounds for side effect traits
-    side_effect_trait_names.values().for_each(|trait_name| {
-        let trait_pattern = quote! { #trait_name < #(#generics,)* #cond_predicate > };
-        scope.insert_trait_bounds(quote! { () }, trait_pattern);
-    });
 
     // add items to env
     env.add_item(if_trait_item);

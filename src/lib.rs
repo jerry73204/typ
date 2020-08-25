@@ -1,4 +1,3 @@
-#![feature(refcell_take)]
 #![feature(hash_set_entry)]
 
 mod common;

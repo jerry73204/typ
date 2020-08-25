@@ -9,13 +9,15 @@ where
 {
     let ExprMatch { expr, arms, .. } = match_;
 
+    // parse matched expression
     let pattern_tokens = match &**expr {
         Expr::Path(path) => translate_path_expr(&path, scope, env)?,
         _ => return Err(Error::new(expr.span(), "not a type")),
     };
 
-    let free_quantifiers = scope.free_quantifiers();
+    // save quantifiers (after matched expression)
     let mutable_quantifiers: HashSet<_> = scope.mutable_quantifiers().keys().cloned().collect();
+    let free_quantifiers = scope.free_quantifiers();
     let generics: Vec<_> = free_quantifiers.keys().collect();
 
     // generate trait names
@@ -34,11 +36,10 @@ where
         .collect();
 
     // generate trait items
-    // TODO: avoid name collision on generics
     let placeholder_ident = format_ident!("{}PLACEHOLDER", IDENT_PREFIX);
 
     let match_trait_item = quote! {
-        pub trait #match_trait_name < #(#generics),* , #placeholder_ident> {
+        pub trait #match_trait_name < #(#generics,)* #placeholder_ident> {
             type Output;
         }
     };
@@ -47,7 +48,7 @@ where
         .values()
         .map(|trait_name| {
             quote! {
-                pub trait #trait_name < #(#generics),* , #placeholder_ident> {
+                pub trait #trait_name < #(#generics,)* #placeholder_ident> {
                     type Output;
                 }
             }
@@ -55,16 +56,11 @@ where
         .collect();
 
     // generate impl items
-
     let impl_items = {
-        // clone first to avoid unnecessary trait bounds
-        let branched_scope = scope.clone();
-
         let impl_items: Vec<_> = arms
             .iter()
-            .map(|arm| -> syn::Result<_> {
-                let Arm { pat, body, .. } = arm;
-                let mut branched_scope = branched_scope.clone();
+            .map(|Arm { pat, body, .. }| -> syn::Result<_> {
+                let mut branched_scope = scope.clone();
 
                 let pat_tokens = {
                     let ty = scope.type_var_builder().from_pat(pat)?;
@@ -74,47 +70,40 @@ where
                 let trait_bounds_tokens = branched_scope.generate_trait_bounds_tokens();
 
                 // impl item for matched type
-                let match_impl = quote! {
-                    impl< #(#generics),* > #match_trait_name<#(#generics),* , #pat_tokens> for ()
-                    where
-                        #trait_bounds_tokens
-                    {
-                        type Output = #body_tokens;
-                    }
+                let match_impl = {
+                    let trait_pattern = quote!( #match_trait_name<#(#generics,)* #pat_tokens> );
+                    let impl_ = quote! {
+                        impl< #(#generics),* > #trait_pattern for ()
+                        where
+                            #trait_bounds_tokens
+                        {
+                            type Output = #body_tokens;
+                        }
+                    };
+                    impl_
                 };
-
-                // add trait bound for match impl
-                scope.insert_trait_bounds(
-                    quote! { () },
-                    quote! { #match_trait_name<#(#generics),* , #pat_tokens> },
-                );
 
                 // impls for side effects
                 let side_effect_impls: Vec<_> = mutable_quantifiers
                     .iter()
-                .map(|ident| {
-                    let trait_name = &side_effect_trait_names[ident];
-                    let value = branched_scope
-                        .get_quantifier(ident)
-                        .expect("please report bug: the variable is missing")
-                        .value;
-
-                    // add trait bound for side effect trait
-                    scope.insert_trait_bounds(
-                        quote! { () },
-                        quote! { #trait_name< #(#generics),* , #pat_tokens > },
-                    );
-
-                    quote! {
-                        impl< #(#generics),* > #trait_name< #(#generics),* , #pat_tokens > for ()
-                        where
-                            #trait_bounds_tokens
-                        {
-                            type Output = #value;
-                        }
-                    }
-                })
-                .collect();
+                    .map(|ident| {
+                        let trait_name = &side_effect_trait_names[ident];
+                        let value = branched_scope
+                            .get_quantifier(ident)
+                            .expect("please report bug: the variable is missing")
+                            .value;
+                        let trait_pattern = quote! { #trait_name< #(#generics,)* #pat_tokens > };
+                        let impl_ = quote! {
+                            impl< #(#generics),* > #trait_pattern for ()
+                            where
+                                #trait_bounds_tokens
+                            {
+                                type Output = #value;
+                            }
+                        };
+                        impl_
+                    })
+                    .collect();
 
                 let impls: Vec<_> = iter::once(match_impl).chain(side_effect_impls).collect();
                 Ok(impls)
@@ -135,17 +124,24 @@ where
     // assign affected variables
     for ident in mutable_quantifiers.iter() {
         let trait_name = &side_effect_trait_names[ident];
+        let trait_pattern = quote! { #trait_name < #(#generics),* , #pattern_tokens > };
         scope.assign_quantifier(
             ident,
             quote! {
-                < () as #trait_name < #(#generics),* , #pattern_tokens > >::Output
+                < () as #trait_pattern >::Output
             },
         )?;
+        scope.insert_trait_bounds(quote! { () }, trait_pattern);
     }
 
     // construct returned value
-    let output = quote! {
-        < () as #match_trait_name < #(#generics),* , #pattern_tokens > >::Output
+    let output = {
+        let trait_pattern = quote! { #match_trait_name < #(#generics),* , #pattern_tokens > };
+        let output = quote! {
+            < () as #trait_pattern >::Output
+        };
+        scope.insert_trait_bounds(quote! { () }, trait_pattern);
+        output
     };
 
     Ok(output)

@@ -1,4 +1,19 @@
-trait List {}
+use std::marker::PhantomData;
+
+pub trait List {}
+
+pub struct Cons<Head, Tail>
+where
+    Tail: List,
+{
+    _phantom: PhantomData<(Head, Tail)>,
+}
+
+impl<Head, Tail> List for Cons<Head, Tail> where Tail: List {}
+
+pub struct Nil;
+
+impl List for Nil {}
 
 typ::typ! {
     fn Empty() {}
@@ -70,3 +85,49 @@ typ::typ! {
         value
     }
 }
+
+mod match_test {
+    pub trait Animal {}
+    pub struct Dog;
+    pub struct Cat;
+    pub struct Mouse;
+
+    typ::typ! {
+        fn MatchTest1<animal>(animal: Animal) -> typenum::Unsigned {
+            match animal {
+                Dog => 1u,
+                Cat => 2u,
+                Mouse => 3u,
+            }
+        }
+
+        fn MatchTest2<animal>(animal: Animal) -> typenum::Unsigned {
+            let value: typenum::Unsigned = match animal {
+                Dog => 1u,
+                Cat => 2u,
+                Mouse => 3u,
+            };
+            value
+        }
+
+        fn MatchTest3<animal>(animal: Animal) -> typenum::Unsigned {
+            let mut value: typenum::Unsigned = 0u;
+            match animal {
+                Dog => value = 1u,
+                Cat => value = 2u,
+                Mouse => value = 3u,
+            }
+            value
+        }
+    }
+}
+
+// typ::typ! {
+//     fn Recursive<N>(N: typenum::Unsigned) {
+//         if N == 0 {
+//             ()
+//         } else {
+//             Recursive(N - 1)
+//         }
+//     }
+// }
