@@ -156,6 +156,7 @@ mod scope {
             let var = ByAddress(Rc::new(Variable {
                 id: var_id,
                 value: quote! { #ident },
+                is_bounded: false,
                 is_mut: false,
             }));
 
@@ -177,6 +178,7 @@ mod scope {
                 let var_id = state.create_var_id();
                 let var = ByAddress(Rc::new(Variable {
                     id: var_id,
+                    is_bounded: true,
                     value,
                     is_mut,
                 }));
@@ -217,6 +219,7 @@ mod scope {
                             id: new_var_id,
                             value,
                             is_mut: true,
+                            is_bounded: true,
                         }));
                         state.variables.push(var.clone());
 
@@ -310,6 +313,7 @@ mod scope {
     pub struct Variable {
         pub id: usize,
         pub is_mut: bool,
+        pub is_bounded: bool,
         pub value: TokenStream,
     }
 }

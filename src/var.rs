@@ -28,9 +28,7 @@ impl ScopedExt for Scoped<&TypeVar> {
         let Self { scope, var: ty } = self;
 
         match ty {
-            TypeVar::Var { var } => {
-                todo!();
-            }
+            TypeVar::Var { var } => var.is_bounded,
             TypeVar::Path { segments } => Scoped {
                 scope: scope.clone(),
                 var: segments,
