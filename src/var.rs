@@ -1,4 +1,7 @@
-use crate::{common::*, scope::SharedScopeState};
+use crate::{
+    common::*,
+    scope::{SharedScopeState, Variable},
+};
 
 pub trait ScopedExt {
     fn is_bounded(&self) -> bool;
@@ -25,7 +28,7 @@ impl ScopedExt for Scoped<&TypeVar> {
         let Self { scope, var: ty } = self;
 
         match ty {
-            TypeVar::Var { id } => {
+            TypeVar::Var { var } => {
                 todo!();
             }
             TypeVar::Path { segments } => Scoped {
@@ -166,7 +169,7 @@ impl ToTokens for Scoped<&TypeVar> {
         let Self { scope, var: ty } = self;
 
         let expanded = match ty {
-            TypeVar::Var { id } => scope.borrow().get_variable(id).unwrap().value.to_owned(),
+            TypeVar::Var { var } => var.value.to_owned(),
             TypeVar::Path { segments } => {
                 let segments = Scoped {
                     scope: scope.clone(),
@@ -325,7 +328,7 @@ pub struct SegmentVar {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum TypeVar {
     Var {
-        id: usize,
+        var: ByAddress<Rc<Variable>>,
     },
     QSelf {
         ty: Box<TypeVar>,

@@ -98,7 +98,7 @@ where
                         .iter()
                         .map(|ident| {
                             let trait_name = &side_effect_trait_names[ident];
-                            let value = branched_scope
+                            let value = &branched_scope
                                 .get_quantifier(ident)
                                 .expect("please report bug: the variable is missing")
                                 .value;
@@ -140,7 +140,7 @@ where
                         .iter()
                         .map(|ident| {
                             let trait_name = &side_effect_trait_names[ident];
-                            let value = branched_scope
+                            let value = &branched_scope
                                 .get_quantifier(ident)
                                 .expect("please report bug: the variable is missing")
                                 .value;
@@ -186,7 +186,7 @@ where
                         .iter()
                         .map(|ident| {
                             let trait_name = &side_effect_trait_names[ident];
-                            let value = branched_scope
+                            let value = &branched_scope
                                 .get_quantifier(ident)
                                 .expect("please report bug: the variable is missing")
                                 .value;
@@ -226,7 +226,7 @@ where
                         .iter()
                         .map(|ident| {
                             let trait_name = &side_effect_trait_names[ident];
-                            let value = saved_scope
+                            let value = &saved_scope
                                 .get_quantifier(ident)
                                 .expect("please report bug: the variable is missing")
                                 .value;

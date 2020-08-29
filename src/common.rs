@@ -32,3 +32,4 @@ pub use syn::{
 };
 
 pub const IDENT_PREFIX: &str = "__TYP_GENERATED_";
+pub type Hrc<T> = ByAddress<Rc<T>>;

@@ -37,63 +37,46 @@ mod scope {
             self.state.borrow_mut()
         }
 
-        fn local_quantifiers(&self) -> Ref<HashMap<Ident, usize>> {
+        fn local_quantifiers(&self) -> Ref<HashMap<Ident, Hrc<Variable>>> {
             Ref::map(self.state(), |state| {
                 state.bounded_quantifiers.last().unwrap()
             })
         }
 
-        fn local_quantifiers_mut(&mut self) -> RefMut<HashMap<Ident, usize>> {
+        fn local_quantifiers_mut(&mut self) -> RefMut<HashMap<Ident, Hrc<Variable>>> {
             RefMut::map(self.state_mut(), |state| {
                 state.bounded_quantifiers.last_mut().unwrap()
             })
         }
 
-        pub fn mutable_quantifiers(&self) -> HashMap<Ident, Variable> {
+        pub fn mutable_quantifiers(&self) -> HashMap<Ident, Hrc<Variable>> {
             let (_shadowed, found) = self.state().bounded_quantifiers.iter().rev().fold(
                 (HashSet::new(), HashMap::new()),
                 |state, quantifiers| {
-                    quantifiers
-                        .iter()
-                        .fold(state, |mut state, (ident, var_id)| {
-                            let (shadowed, found) = &mut state;
+                    quantifiers.iter().fold(state, |mut state, (ident, var)| {
+                        let (shadowed, found) = &mut state;
 
-                            // insert if the variable is not shadowed yet
-                            shadowed.get_or_insert_with(ident, |_| {
-                                let quantifier = self
-                                    .state()
-                                    .variables
-                                    .get(var_id)
-                                    .expect("please report bug: missing variable")
-                                    .to_owned();
+                        // insert if the variable is not shadowed yet
+                        shadowed.get_or_insert_with(ident, |_| {
+                            // add to result set if it is mutable
+                            if var.is_mut {
+                                found.insert(ident.to_owned(), var.clone());
+                            }
 
-                                // add to result set if it is mutable
-                                if quantifier.is_mut {
-                                    found.insert(ident.to_owned(), quantifier);
-                                }
-
-                                ident.to_owned()
-                            });
-                            state
-                        })
+                            ident.to_owned()
+                        });
+                        state
+                    })
                 },
             );
             found
         }
 
-        pub fn free_quantifiers(&self) -> IndexMap<Ident, Variable> {
+        pub fn free_quantifiers(&self) -> IndexMap<Ident, Hrc<Variable>> {
             self.state()
                 .free_quantifiers
                 .iter()
-                .map(|(ident, var_id)| {
-                    let var = self
-                        .state()
-                        .variables
-                        .get(var_id)
-                        .expect("please report bug: missing variable")
-                        .to_owned();
-                    (ident.to_owned(), var)
-                })
+                .map(|(ident, var)| (ident.to_owned(), var.clone()))
                 .collect()
         }
 
@@ -105,34 +88,46 @@ mod scope {
             self.state.clone()
         }
 
-        pub fn get_var_id(&self, ident: &Ident) -> Option<usize> {
+        pub fn get_var(&self, ident: &Ident) -> Option<Hrc<Variable>> {
             // search from bounded quantifiers
             for quantifiers in self.state().bounded_quantifiers.iter().rev() {
-                if let Some(id) = quantifiers.get(ident) {
-                    return Some(*id);
+                if let Some(var) = quantifiers.get(ident) {
+                    return Some(var.clone());
                 }
             }
 
             // search from free quantifiers
-            if let Some(id) = self.state().free_quantifiers.get(ident) {
-                return Some(*id);
+            if let Some(var) = self.state().free_quantifiers.get(ident) {
+                return Some(var.clone());
             }
 
             None
         }
 
-        pub fn get_quantifier(&self, ident: &Ident) -> Option<Variable> {
+        pub fn get_var_id(&self, ident: &Ident) -> Option<usize> {
+            // search from bounded quantifiers
+            for quantifiers in self.state().bounded_quantifiers.iter().rev() {
+                if let Some(var) = quantifiers.get(ident) {
+                    return Some(var.id);
+                }
+            }
+
+            // search from free quantifiers
+            if let Some(var) = self.state().free_quantifiers.get(ident) {
+                return Some(var.id);
+            }
+
+            None
+        }
+
+        pub fn get_quantifier(&self, ident: &Ident) -> Option<Hrc<Variable>> {
             let state = self.state();
 
             state
                 .bounded_quantifiers
                 .iter()
                 .rev()
-                .find_map(|quantifiers| {
-                    quantifiers
-                        .get(ident)
-                        .map(|var_id| state.variables[var_id].to_owned())
-                })
+                .find_map(|quantifiers| quantifiers.get(ident).map(|var| var.clone()))
         }
 
         pub fn generate_trait_bounds_tokens(&self) -> TokenStream {
@@ -158,16 +153,15 @@ mod scope {
 
             // create a new variable
             let var_id = self.state_mut().create_var_id();
-            self.state.borrow_mut().variables.insert(
-                var_id,
-                Variable {
-                    id: var_id,
-                    value: quote! { #ident },
-                    is_mut: false,
-                },
-            );
+            let var = ByAddress(Rc::new(Variable {
+                id: var_id,
+                value: quote! { #ident },
+                is_mut: false,
+            }));
 
-            self.state_mut().free_quantifiers.insert(ident, var_id);
+            let mut state = self.state_mut();
+            state.variables.push(var.clone());
+            state.free_quantifiers.insert(ident, var);
             Ok(())
         }
 
@@ -178,18 +172,20 @@ mod scope {
             is_mut: bool,
         ) {
             // create a new variable
-            let var_id = self.state_mut().create_var_id();
-            self.state.borrow_mut().variables.insert(
-                var_id,
-                Variable {
+            let var = {
+                let mut state = self.state_mut();
+                let var_id = state.create_var_id();
+                let var = ByAddress(Rc::new(Variable {
                     id: var_id,
                     value,
                     is_mut,
-                },
-            );
+                }));
+                state.variables.push(var.clone());
+                var
+            };
 
             // add the identifier to current scop
-            self.local_quantifiers_mut().insert(ident, var_id);
+            self.local_quantifiers_mut().insert(ident, var);
         }
 
         pub fn insert_trait_bounds(&mut self, predicate: TokenStream, bounds: TokenStream) {
@@ -207,38 +203,25 @@ mod scope {
                 .enumerate()
                 .rev()
                 .find_map(|(index, quantifiers)| {
-                    quantifiers
-                        .get(ident)
-                        .copied()
-                        .map(|var_id| (index, var_id))
+                    quantifiers.get(ident).cloned().map(|var| (index, var))
                 });
 
             match opt {
-                Some((index, prev_var_id)) => {
-                    // check if the quantifier is mutable
-                    let is_mut = self
-                        .state()
-                        .variables
-                        .get(&prev_var_id)
-                        .expect("please report bug: missing quantifier value")
-                        .is_mut;
-
-                    if is_mut {
+                Some((index, prev_var)) => {
+                    if prev_var.is_mut {
                         let mut state = self.state_mut();
 
                         // create a new quantifier instance
                         let new_var_id = state.create_var_id();
-                        state.variables.insert(
-                            new_var_id,
-                            Variable {
-                                id: new_var_id,
-                                value,
-                                is_mut: true,
-                            },
-                        );
+                        let var = ByAddress(Rc::new(Variable {
+                            id: new_var_id,
+                            value,
+                            is_mut: true,
+                        }));
+                        state.variables.push(var.clone());
 
                         // replace the id that the identifier points to
-                        state.bounded_quantifiers[index].insert(ident.to_owned(), new_var_id);
+                        state.bounded_quantifiers[index].insert(ident.to_owned(), var);
 
                         Ok(())
                     } else {
@@ -276,9 +259,9 @@ mod scope {
     pub struct ScopeState {
         var_counter: usize,
         trait_bounds: Vec<(TokenStream, TokenStream)>,
-        variables: HashMap<usize, Variable>,
-        free_quantifiers: IndexMap<Ident, usize>,
-        bounded_quantifiers: Vec<HashMap<Ident, usize>>,
+        variables: Vec<Hrc<Variable>>,
+        free_quantifiers: IndexMap<Ident, Hrc<Variable>>,
+        bounded_quantifiers: Vec<HashMap<Ident, Hrc<Variable>>>,
     }
 
     impl ScopeState {
@@ -286,14 +269,10 @@ mod scope {
             Self {
                 var_counter: 0,
                 trait_bounds: vec![],
-                variables: HashMap::new(),
+                variables: vec![],
                 free_quantifiers: IndexMap::new(),
                 bounded_quantifiers: vec![HashMap::new()],
             }
-        }
-
-        pub fn get_variable(&self, id: &usize) -> Option<&Variable> {
-            self.variables.get(id)
         }
 
         pub fn create_var_id(&mut self) -> usize {
@@ -305,7 +284,7 @@ mod scope {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    pub struct SharedScopeState(ByAddress<Rc<RefCell<ScopeState>>>);
+    pub struct SharedScopeState(Hrc<RefCell<ScopeState>>);
 
     impl SharedScopeState {
         pub fn new() -> Self {
@@ -364,7 +343,7 @@ mod var_builder {
             Some(Scoped {
                 scope: self.scope.shared_state(),
                 var: TypeVar::Var {
-                    id: self.scope.get_var_id(ident)?,
+                    var: self.scope.get_var(ident)?,
                 },
             })
         }
@@ -554,8 +533,8 @@ mod var_builder {
                 None => {
                     // check if the path coincides with quantifiers
                     if let Some(ident) = path.get_ident() {
-                        if let Some(var_id) = scope.get_var_id(ident) {
-                            let var = TypeVar::Var { id: var_id };
+                        if let Some(var) = scope.get_var(ident) {
+                            let var = TypeVar::Var { var: var.clone() };
                             return Ok(var);
                         }
                     }
@@ -571,8 +550,8 @@ mod var_builder {
         pub fn from_pat(scope: &Scope, pat: &Pat) -> syn::Result<TypeVar> {
             match pat {
                 Pat::Ident(PatIdent { ident, .. }) => {
-                    let var = match scope.get_var_id(ident) {
-                        Some(var_id) => TypeVar::Var { id: var_id },
+                    let var = match scope.get_var(ident) {
+                        Some(var) => TypeVar::Var { var },
                         None => TypeVar::Path {
                             segments: vec![SegmentVar {
                                 ident: ident.to_owned(),
