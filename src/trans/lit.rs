@@ -2,11 +2,12 @@ use super::*;
 
 pub fn translate_lit_expr(
     expr: &ExprLit,
-    _scope: &mut Scope,
+    scope: &mut ScopeSet,
     _env: &mut Env,
-) -> syn::Result<TokenStream> {
+) -> syn::Result<usize> {
     let ExprLit { lit, .. } = expr;
 
+    // parse literal
     let tokens = match lit {
         Lit::Bool(LitBool { value, .. }) => {
             if *value {
@@ -30,17 +31,16 @@ pub fn translate_lit_expr(
                 let ty = int_to_typenum(value);
                 ty
             }
-            "b" => match int_.base10_digits() {
-                "0" => quote! { typenum::B0 },
-                "1" => quote! { typenum::B1 },
-                _ => return Err(Error::new(int_.span(), "not a bit")),
-            },
             _ => return Err(Error::new(int_.span(), "unsupported literal suffix")),
         },
         _ => return Err(Error::new(lit.span(), "unsupported literal")),
     };
 
-    Ok(tokens)
+    let num_branches = scope.num_branches();
+    let expanded: Vec<_> = (0..num_branches).map(|_| tokens.clone()).collect();
+    let id = scope.push(expanded);
+
+    Ok(id)
 }
 
 fn int_to_typenum(value: u128) -> TokenStream {

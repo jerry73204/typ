@@ -2,21 +2,33 @@ use super::*;
 
 pub fn translate_assign_expr(
     assign: &ExprAssign,
-    scope: &mut Scope,
+    scope: &mut ScopeSet,
     env: &mut Env,
-) -> syn::Result<TokenStream>
+) -> syn::Result<usize>
 where
 {
     let ExprAssign { left, right, .. } = assign;
-    let quantifier_ident = match &**left {
+
+    // parse lhs
+    let ident = match &**left {
         Expr::Path(path) => match path.path.get_ident() {
             Some(ident) => ident,
             None => return Err(Error::new(path.span(), "not an identifier")),
         },
         _ => return Err(Error::new(left.span(), "not an identifier")),
     };
-    let value = translate_expr(right, scope, env)?;
 
-    scope.assign_quantifier(quantifier_ident, value)?;
-    Ok(quote! { () })
+    // parse rhs
+    let value_id = translate_expr(right, scope, env)?;
+    let values: Vec<_> = scope.pop(value_id);
+
+    // update state
+    scope.assign_quantifier(ident, values)?;
+
+    // expand return value
+    let num_branches = scope.num_branches();
+    let expanded: Vec<_> = (0..num_branches).map(|_| quote! { () }).collect();
+    let id = scope.push(expanded);
+
+    Ok(id)
 }

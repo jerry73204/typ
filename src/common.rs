@@ -7,10 +7,12 @@ pub use radix_trie::{Trie, TrieKey};
 pub use std::{
     borrow::{Borrow, BorrowMut, Cow},
     cell::{Cell, Ref, RefCell, RefMut},
-    collections::{BTreeSet, HashMap, HashSet},
+    cmp::Ordering,
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     convert::{TryFrom, TryInto},
     fmt::Debug,
     hash::Hash,
+    hash::Hasher,
     iter,
     iter::{Extend, FromIterator, Sum},
     mem,
@@ -31,5 +33,4 @@ pub use syn::{
     Type, TypeParam, TypeParamBound, TypeParen, TypePath, TypeTuple, UnOp, Variant, Visibility,
 };
 
-pub const IDENT_PREFIX: &str = "__TYP_GENERATED_";
-pub type Hrc<T> = ByAddress<Rc<T>>;
+pub const IDENT_PREFIX: &str = "__TYP__";

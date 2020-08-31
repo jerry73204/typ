@@ -1,9 +1,10 @@
 use super::*;
 
-pub fn translate_expr(expr: &Expr, scope: &mut Scope, env: &mut Env) -> syn::Result<TokenStream>
+pub fn translate_expr(expr: &Expr, scope: &mut ScopeSet, env: &mut Env) -> syn::Result<usize>
 where
 {
-    match expr {
+    dbg!();
+    let ret = match expr {
         Expr::Match(match_) => translate_match_expr(match_, scope, env),
         Expr::Path(path) => translate_path_expr(path, scope, env),
         Expr::Tuple(tuple) => translate_tuple_expr(tuple, scope, env),
@@ -16,74 +17,125 @@ where
         Expr::Lit(lit) => translate_lit_expr(&lit, scope, env),
         Expr::Unary(unary) => translate_unary_expr(&unary, scope, env),
         _ => Err(Error::new(expr.span(), "unsupported expression")),
-    }
+    };
+    dbg!();
+    ret
 }
 
 pub fn translate_path_expr(
-    ExprPath { qself, path, .. }: &ExprPath,
-    scope: &mut Scope,
+    expr: &ExprPath,
+    scope: &mut ScopeSet,
     _env: &mut Env,
-) -> syn::Result<TokenStream>
+) -> syn::Result<usize>
 where
 {
-    let value = scope.type_var_builder().from_path(qself.as_ref(), path)?;
-    Ok(quote! { #value })
+    dbg!();
+    let values = scope.substitute_type(expr)?;
+    let id = scope.push(values);
+    dbg!();
+    Ok(id)
 }
 
 pub fn translate_tuple_expr(
     tuple: &ExprTuple,
-    scope: &mut Scope,
+    scope: &mut ScopeSet,
     env: &mut Env,
-) -> syn::Result<TokenStream>
+) -> syn::Result<usize>
 where
 {
-    let types: Vec<_> = tuple
+    dbg!();
+    // translate each element
+    let ids: Vec<_> = tuple
         .elems
         .iter()
         .map(|expr| translate_expr(expr, scope, env))
         .try_collect()?;
-    Ok(quote! { ( #(#types),*  )})
+    let branches_per_value: Vec<_> = ids.into_iter().map(|id| scope.pop(id)).collect();
+
+    // merge tokens from each element
+    let values_per_branch = crate::utils::transpose(&branches_per_value);
+    let expanded: Vec<_> = values_per_branch
+        .into_iter()
+        .map(|values| {
+            quote! { ( #(#values),* ) }
+        })
+        .collect();
+    let id = scope.push(expanded);
+
+    dbg!();
+    Ok(id)
 }
 
 pub fn translate_block_expr(
     block: &ExprBlock,
-    scope: &mut Scope,
+    scope: &mut ScopeSet,
     env: &mut Env,
-) -> syn::Result<TokenStream> {
+) -> syn::Result<usize> {
     translate_block(&block.block, scope, env)
 }
 
 pub fn translate_call_expr(
     call: &ExprCall,
-    scope: &mut Scope,
+    scope: &mut ScopeSet,
     env: &mut Env,
-) -> syn::Result<TokenStream>
+) -> syn::Result<usize>
 where
 {
     let ExprCall { func, args, .. } = call;
 
+    // parse func name as trait
+    dbg!();
     let func = match &**func {
         Expr::Path(ExprPath {
             qself: None, path, ..
-        }) => scope.trait_var_builder().from_path(path)?,
+        }) => scope.substitute_trait(path)?,
         Expr::Path(ExprPath { qself: Some(_), .. }) => {
             return Err(Error::new(func.span(), "not a trait"))
         }
         _ => return Err(Error::new(func.span(), "not a trait")),
     };
-    let args: Vec<_> = args
+    let func_id = scope.push(func);
+
+    // parse arguments
+    dbg!();
+    let arg_ids: Vec<_> = args
         .iter()
         .map(|arg| translate_expr(arg, scope, env))
         .try_collect()?;
+    dbg!();
 
-    let func_trait = if args.is_empty() {
-        quote! { #func }
-    } else {
-        quote! { #func < #(#args),* >  }
-    };
-    let output = quote! { < () as #func_trait >::Output };
+    dbg!();
+    let func_tokens = scope.pop(func_id);
+    dbg!();
+    let branches_per_arg: Vec<_> = arg_ids.into_iter().map(|id| scope.pop(id)).collect();
+    dbg!();
+    let args_per_branch = crate::utils::transpose(&branches_per_arg);
+    dbg!();
 
-    scope.insert_trait_bounds(quote! { () }, func_trait);
+    dbg!();
+    let (expanded, predicates): (Vec<_>, Vec<_>) = func_tokens
+        .into_iter()
+        .zip_eq(args_per_branch)
+        .map(|(func, args)| {
+            // expand trait "call"
+            let func_trait = if args.is_empty() {
+                quote! { #func }
+            } else {
+                quote! { #func < #(#args),* >  }
+            };
+            let expanded = quote! { < () as #func_trait >::Output };
 
-    Ok(output)
+            // expand trait bounds
+            let ty = quote! { () };
+            let bounds = func_trait;
+
+            (expanded, (ty, bounds))
+        })
+        .unzip();
+
+    dbg!();
+    scope.insert_trait_bounds(predicates);
+    let id = scope.push(expanded);
+
+    Ok(id)
 }

@@ -1,10 +1,6 @@
 use super::*;
 
-pub fn translate_block(
-    block: &Block,
-    scope: &mut Scope,
-    env: &mut Env,
-) -> syn::Result<TokenStream>
+pub fn translate_block(block: &Block, scope: &mut ScopeSet, env: &mut Env) -> syn::Result<usize>
 where
 {
     let mut output_ty = None;
@@ -14,8 +10,10 @@ where
         for stmt in block.stmts.iter() {
             match stmt {
                 Stmt::Local(local) => {
-                    // parse let statement
-                    let (ident, trait_bounds_opt, is_mut, expr) = {
+                    dbg!();
+                    // parse let statement as (let indent: trait_bounds = expr)
+                    let (ident, ty_opt, is_mut, expr) = {
+                        // check if the initial type is present
                         let (pat, expr) = match local {
                             Local {
                                 pat,
@@ -27,10 +25,12 @@ where
                             }
                         };
 
-                        let (ident, trait_bounds_opt, is_mut) = match pat {
+                        let (ident, ty_opt, is_mut) = match pat {
+                            // only indent (let x = ...)
                             Pat::Ident(PatIdent {
                                 ident, mutability, ..
                             }) => (ident, None, matches!(mutability, Some(_))),
+                            // indent with type (let x: T = ...)
                             Pat::Type(PatType { pat, ty, .. }) => {
                                 let (ident, is_mut) = match &**pat {
                                     Pat::Ident(PatIdent {
@@ -38,41 +38,48 @@ where
                                     }) => (ident, matches!(mutability, Some(_))),
                                     _ => return Err(Error::new(local.span(), "not an identifier")),
                                 };
-                                let trait_bounds =
-                                    scope.trait_bounds_var_builder().from_type(ty)?;
-
-                                (ident, Some(trait_bounds), is_mut)
+                                (ident, Some(&**ty), is_mut)
                             }
                             _ => return Err(Error::new(pat.span(), "not a identifier")),
                         };
 
-                        (ident, trait_bounds_opt, is_mut, expr)
+                        (ident, ty_opt, is_mut, expr)
                     };
 
                     // compute output type from expression
-                    let value = translate_expr(expr, scope, env)?;
+                    let value_id = translate_expr(expr, scope, env)?;
+                    let values = scope.pop(value_id);
 
-                    // register the local quantifier
-                    scope.insert_bounded_quantifier(ident.to_owned(), value, is_mut);
+                    // add new bounded quantifier
+                    scope.insert_bounded_quantifier(ident.to_owned(), is_mut, values.clone());
 
                     // insert trait bounds
-                    if let Some(trait_bounds) = trait_bounds_opt {
-                        let predicate = scope
-                            .type_var_builder()
-                            .from_quantifier(ident)
-                            .expect("please report bug: not a valid quantifier");
-                        scope.insert_trait_bounds(quote! { #predicate }, quote! { #trait_bounds });
+                    if let Some(ty) = ty_opt {
+                        let trait_bounds = scope.substitute_trait_bounds(ty)?;
+                        let predicates: Vec<_> = values
+                            .into_iter()
+                            .zip_eq(trait_bounds)
+                            .map(|(ty, bounds)| (ty, bounds))
+                            .collect();
+                        scope.insert_trait_bounds(predicates);
                     }
+
+                    output_ty = None;
+                    dbg!();
                 }
                 Stmt::Item(item) => {
                     return Err(Error::new(item.span(), "in-block item is not allowed"))
                 }
                 Stmt::Expr(expr) => {
+                    dbg!();
                     output_ty = Some(translate_expr(expr, scope, env)?);
+                    dbg!();
                 }
                 Stmt::Semi(expr, _semi) => {
+                    dbg!();
                     translate_expr(expr, scope, env)?;
-                    output_ty = Some(quote! { () });
+                    output_ty = None;
+                    dbg!();
                 }
             }
         }
@@ -80,5 +87,12 @@ where
         Ok(())
     })?;
 
-    Ok(output_ty.unwrap_or_else(|| quote! { () }))
+    dbg!();
+
+    Ok(output_ty.unwrap_or_else(|| {
+        let num_branches = scope.num_branches();
+        let expanded: Vec<_> = (0..num_branches).map(|_| quote! { () }).collect();
+        let id = scope.push(expanded);
+        id
+    }))
 }

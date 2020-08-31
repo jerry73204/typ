@@ -4,7 +4,7 @@ mod common;
 mod env;
 mod scope;
 mod trans;
-mod var;
+mod utils;
 
 use crate::common::*;
 

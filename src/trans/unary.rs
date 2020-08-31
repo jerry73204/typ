@@ -2,25 +2,33 @@ use super::*;
 
 pub fn translate_unary_expr(
     ExprUnary { op, expr, .. }: &ExprUnary,
-    scope: &mut Scope,
+    scope: &mut ScopeSet,
     env: &mut Env,
-) -> syn::Result<TokenStream> {
-    let operand_ty = translate_expr(expr, scope, env)?;
-    let output_ty = match op {
+) -> syn::Result<usize> {
+    let ty_id = translate_expr(expr, scope, env)?;
+
+    let trait_ = match op {
         UnOp::Neg(_) => {
-            let trait_ = quote! { core::ops::Neg };
-            let output = quote! { < #operand_ty as #trait_ > :: Output };
-            scope.insert_trait_bounds(operand_ty.clone(), trait_);
-            output
+            quote! { core::ops::Neg }
         }
         UnOp::Not(_) => {
-            let trait_ = quote! { core::ops::Not };
-            let output = quote! { < #operand_ty as #trait_ > :: Output };
-            scope.insert_trait_bounds(operand_ty, trait_);
-            output
+            quote! { core::ops::Not }
         }
         _ => return Err(Error::new(op.span(), "unsupported unary operator")),
     };
 
-    Ok(output_ty)
+    let ty_tokens = scope.pop(ty_id);
+    let (expanded, predicates): (Vec<_>, Vec<_>) = ty_tokens
+        .into_iter()
+        .map(|ty| {
+            let expanded = quote! { <#ty as #trait_>::Output };
+            let bounds = trait_.clone();
+            (expanded, (ty, bounds))
+        })
+        .unzip();
+
+    scope.insert_trait_bounds(predicates);
+    let id = scope.push(expanded);
+
+    Ok(id)
 }
