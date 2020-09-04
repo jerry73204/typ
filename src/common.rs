@@ -29,9 +29,9 @@ pub use syn::{
     ExprCall, ExprIf, ExprLet, ExprLit, ExprMatch, ExprPath, ExprTuple, ExprUnary, Field, Fields,
     FnArg, GenericArgument, GenericParam, Ident, ImplItem, ImplItemMethod, ImplItemType, Item,
     ItemEnum, ItemFn, ItemImpl, ItemStruct, Lit, LitBool, LitInt, Local, Pat, PatIdent, PatPath,
-    PatType, Path, PathArguments, PathSegment, QSelf, Receiver, ReturnType, Signature, Stmt,
-    TraitBound, TraitBoundModifier, Type, TypeParam, TypeParamBound, TypeParen, TypePath,
-    TypeTuple, UnOp, Variant, Visibility,
+    PatType, Path, PathArguments, PathSegment, PredicateType, QSelf, Receiver, ReturnType,
+    Signature, Stmt, TraitBound, TraitBoundModifier, Type, TypeParam, TypeParamBound, TypeParen,
+    TypePath, TypeTuple, UnOp, Variant, Visibility, WherePredicate,
 };
 
 pub const IDENT_PREFIX: &str = "__TYP__";

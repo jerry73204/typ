@@ -28,7 +28,6 @@ where
              }|
              -> syn::Result<_> {
                 // parse attributes
-
                 let generics_attr = {
                     let mut generics_attr = None;
 

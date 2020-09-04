@@ -6,6 +6,7 @@ mod parse;
 mod scope;
 mod trans;
 mod utils;
+mod var;
 
 use crate::{common::*, parse::ItemVec};
 

@@ -1,6 +1,7 @@
 use crate::{
     common::*,
     utils::{IntoOwnedTokens, Shared, SharedCell},
+    var::{ParseTypeVar, TypeVar},
 };
 
 pub use pure_trans::*;
@@ -158,6 +159,25 @@ mod scope {
             self.global.borrow().conditions.len()
         }
 
+        pub fn parse_type<T>(&self, ty: T) -> syn::Result<TypeVar>
+        where
+            T: ParseTypeVar,
+        {
+            ty.parse_type_var(self)
+        }
+
+        pub fn get_quantifier(&self, ident: &Ident) -> Option<Shared<Variable>> {
+            let opt = self
+                .global
+                .borrow()
+                .bounded_quantifiers
+                .iter()
+                .rev()
+                .find_map(|quantifiers| quantifiers.get(ident).cloned());
+
+            opt.or_else(|| self.global.borrow().free_quantifiers.get(ident).cloned())
+        }
+
         // pub fn mutable_quantifiers(&self) -> IndexSet<Rc<Ident>> {
         //     let (_shadowed, found) = self.global.borrow().bounded_quantifiers.iter().rev().fold(
         //         (HashSet::new(), IndexSet::new()),
@@ -215,28 +235,6 @@ mod scope {
                 .map(|scope| trait_bounds.substitute_trait_bounds(&scope))
                 .try_collect()
         }
-
-        // pub fn insert_arg<T>(&mut self, values: Vec<T>)
-        // where
-        //     T: IntoOwnedTokens,
-        // {
-        //     // sanity check
-        //     assert_eq!(
-        //         values.len(),
-        //         self.locals.len(),
-        //         "please report bug: the number of values does not match"
-        //     );
-
-        //     self.global.borrow_mut().num_args += 1;
-        //     self.locals
-        //         .iter()
-        //         .cloned()
-        //         .zip_eq(values)
-        //         .for_each(|(local, value)| {
-        //             let value = value.into_owned_tokens();
-        //             local.borrow_mut().args.push(Rc::new(value));
-        //         });
-        // }
 
         pub fn insert_free_quantifier(&mut self, ident: Ident) -> syn::Result<()> {
             let ident = Rc::new(ident);
