@@ -25,12 +25,13 @@ pub use syn::{
     spanned::Spanned,
     token,
     visit_mut::VisitMut,
-    Arm, BinOp, Block, Error, Expr, ExprAssign, ExprBinary, ExprBlock, ExprCall, ExprIf, ExprLet,
-    ExprLit, ExprMatch, ExprPath, ExprTuple, ExprUnary, Field, Fields, FnArg, GenericArgument,
-    GenericParam, Ident, ImplItem, ImplItemMethod, ImplItemType, Item, ItemEnum, ItemFn, ItemImpl,
-    ItemStruct, Lit, LitBool, LitInt, Local, Pat, PatIdent, PatPath, PatType, Path, PathArguments,
-    PathSegment, QSelf, Receiver, ReturnType, Signature, Stmt, TraitBound, TraitBoundModifier,
-    Type, TypeParam, TypeParamBound, TypeParen, TypePath, TypeTuple, UnOp, Variant, Visibility,
+    Arm, AttrStyle, Attribute, BinOp, Block, Error, Expr, ExprAssign, ExprBinary, ExprBlock,
+    ExprCall, ExprIf, ExprLet, ExprLit, ExprMatch, ExprPath, ExprTuple, ExprUnary, Field, Fields,
+    FnArg, GenericArgument, GenericParam, Ident, ImplItem, ImplItemMethod, ImplItemType, Item,
+    ItemEnum, ItemFn, ItemImpl, ItemStruct, Lit, LitBool, LitInt, Local, Pat, PatIdent, PatPath,
+    PatType, Path, PathArguments, PathSegment, QSelf, Receiver, ReturnType, Signature, Stmt,
+    TraitBound, TraitBoundModifier, Type, TypeParam, TypeParamBound, TypeParen, TypePath,
+    TypeTuple, UnOp, Variant, Visibility,
 };
 
 pub const IDENT_PREFIX: &str = "__TYP__";

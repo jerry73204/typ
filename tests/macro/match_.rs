@@ -1,21 +1,6 @@
 use crate::common::*;
 
-// pub trait List {}
-
-// pub struct Cons<Head, Tail>
-// where
-//     Tail: List,
-// {
-//     _phantom: PhantomData<(Head, Tail)>,
-// }
-
-// impl<Head, Tail> List for Cons<Head, Tail> where Tail: List {}
-
-// pub struct Nil;
-
-// impl List for Nil {}
-
-mod match_test {
+mod animal_test {
     use super::*;
 
     pub trait Animal {}
@@ -50,12 +35,32 @@ mod match_test {
     }
 }
 
-// typ::typ! {
-//     fn Recursive<N>(N: typenum::Unsigned) {
-//         if N == 0 {
-//             ()
-//         } else {
-//             Recursive(N - 1)
-//         }
-//     }
-// }
+mod list_test {
+    use super::*;
+
+    pub trait List {}
+
+    pub struct Cons<Head, Tail>
+    where
+        Tail: List,
+    {
+        head: Head,
+        tail: Tail,
+    }
+
+    impl<Head, Tail> List for Cons<Head, Tail> where Tail: List {}
+
+    pub struct Nil;
+
+    impl List for Nil {}
+
+    typ::typ! {
+        fn Append<L>(L: List) -> List {
+            match L {
+                #[generics(Head, Tail: List)]
+                Cons::<Head, Tail> => {}
+                Nil => {}
+            }
+        }
+    }
+}

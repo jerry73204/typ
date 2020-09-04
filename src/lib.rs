@@ -2,24 +2,12 @@
 
 mod common;
 mod env;
+mod parse;
 mod scope;
 mod trans;
 mod utils;
 
-use crate::common::*;
-
-#[derive(Debug, Clone)]
-struct ItemVec(pub Vec<Item>);
-
-impl Parse for ItemVec {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let mut items = Vec::new();
-        while !input.cursor().eof() {
-            items.push(input.parse::<Item>()?);
-        }
-        Ok(ItemVec(items))
-    }
-}
+use crate::{common::*, parse::ItemVec};
 
 #[proc_macro]
 pub fn typ(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
