@@ -55,7 +55,7 @@ where
 
                     // insert trait bounds
                     if let Some(ty) = ty_opt {
-                        let trait_bounds = scope.substitute_trait_bounds(ty)?;
+                        let trait_bounds = ty.parse_type_param_bounds_var(scope)?;
                         let predicates: Vec<_> = values
                             .into_iter()
                             .zip_eq(trait_bounds)

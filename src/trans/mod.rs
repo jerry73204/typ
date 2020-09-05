@@ -13,7 +13,11 @@ mod unary;
 
 pub use crate::{
     common::*,
-    scope::{Env, IntoPureTraitBounds, IntoPureType},
+    env::Env,
+    var::{
+        ParsePureType, ParsePureWherePredicate, ParseTypeParamBoundsVar, ParseTypeVar,
+        ParseWherePredicateVar,
+    },
 };
 pub use assign::*;
 pub use binop::*;

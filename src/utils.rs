@@ -1,4 +1,7 @@
-use crate::common::*;
+use crate::{
+    common::*,
+    var::{TypeVar, WherePredicateVar},
+};
 
 #[derive(Debug, Clone)]
 pub struct Shared<T>(ByAddress<Rc<T>>);
@@ -101,44 +104,100 @@ impl<T> Hash for SharedCell<T> {
     }
 }
 
-pub fn transpose<T>(values: &Vec<Vec<T>>) -> Vec<Vec<T>>
-where
-    T: Clone,
-{
-    if values.is_empty() {
-        return vec![];
+pub trait VecTranspose<T> {
+    fn transpose(&self) -> Vec<Vec<T>>
+    where
+        T: Clone;
+    fn transpose_inplace(self) -> Vec<Vec<T>>
+    where
+        T: Clone;
+}
+
+impl<T> VecTranspose<T> for Vec<Vec<T>> {
+    fn transpose(&self) -> Vec<Vec<T>>
+    where
+        T: Clone,
+    {
+        if self.is_empty() {
+            return vec![];
+        }
+
+        let n_rows = self.len();
+        let n_cols = self[0].len();
+
+        (0..n_cols)
+            .map(|col_idx| {
+                (0..n_rows)
+                    .map(|row_idx| self[row_idx][col_idx].clone())
+                    .collect()
+            })
+            .collect()
     }
 
-    let n_rows = values.len();
-    let n_cols = values[0].len();
+    fn transpose_inplace(self) -> Vec<Vec<T>>
+    where
+        T: Clone,
+    {
+        if self.is_empty() {
+            return self;
+        }
 
-    (0..n_cols)
-        .map(|col_idx| {
-            (0..n_rows)
-                .map(|row_idx| values[row_idx][col_idx].clone())
-                .collect()
-        })
-        .collect()
+        let n_rows = self.len();
+        let n_cols = self[0].len();
+        self.iter().for_each(|row| assert_eq!(row.len(), n_cols));
+
+        let mut buffer = vec![
+            unsafe {
+                let mut v = Vec::with_capacity(n_rows);
+                v.set_len(n_rows);
+                v
+            };
+            n_cols
+        ];
+        self.into_iter().enumerate().for_each(|(row_index, row)| {
+            row.into_iter().enumerate().for_each(|(col_index, value)| {
+                buffer[col_index][row_index] = value;
+            })
+        });
+
+        buffer
+    }
 }
 
-pub trait IntoOwnedTokens {
-    fn into_owned_tokens(self) -> TokenStream;
+pub trait IntoRc {
+    type Inner;
+
+    fn into_rc(self) -> Rc<Self::Inner>;
 }
 
-impl IntoOwnedTokens for TokenStream {
-    fn into_owned_tokens(self) -> TokenStream {
+impl IntoRc for TypeVar {
+    type Inner = TypeVar;
+
+    fn into_rc(self) -> Rc<Self::Inner> {
+        Rc::new(self)
+    }
+}
+
+impl IntoRc for Rc<TypeVar> {
+    type Inner = TypeVar;
+
+    fn into_rc(self) -> Rc<Self::Inner> {
         self
     }
 }
 
-impl IntoOwnedTokens for Rc<TokenStream> {
-    fn into_owned_tokens(self) -> TokenStream {
-        (*self).to_owned()
+impl IntoRc for WherePredicateVar {
+    type Inner = WherePredicateVar;
+
+    fn into_rc(self) -> Rc<Self::Inner> {
+        Rc::new(self)
     }
 }
 
-impl IntoOwnedTokens for &TokenStream {
-    fn into_owned_tokens(self) -> TokenStream {
-        self.to_owned()
+impl IntoRc for Rc<WherePredicateVar> {
+    type Inner = WherePredicateVar;
+
+    fn into_rc(self) -> Rc<Self::Inner> {
+        self
     }
 }

@@ -25,13 +25,14 @@ pub use syn::{
     spanned::Spanned,
     token,
     visit_mut::VisitMut,
-    Arm, AttrStyle, Attribute, BinOp, Block, Error, Expr, ExprAssign, ExprBinary, ExprBlock,
-    ExprCall, ExprIf, ExprLet, ExprLit, ExprMatch, ExprPath, ExprTuple, ExprUnary, Field, Fields,
-    FnArg, GenericArgument, GenericParam, Ident, ImplItem, ImplItemMethod, ImplItemType, Item,
-    ItemEnum, ItemFn, ItemImpl, ItemStruct, Lit, LitBool, LitInt, Local, Pat, PatIdent, PatPath,
-    PatType, Path, PathArguments, PathSegment, PredicateType, QSelf, Receiver, ReturnType,
-    Signature, Stmt, TraitBound, TraitBoundModifier, Type, TypeParam, TypeParamBound, TypeParen,
-    TypePath, TypeTuple, UnOp, Variant, Visibility, WherePredicate,
+    Arm, AttrStyle, Attribute, BinOp, Block, ConstParam, Error, Expr, ExprAssign, ExprBinary,
+    ExprBlock, ExprCall, ExprIf, ExprLet, ExprLit, ExprMatch, ExprPath, ExprTuple, ExprUnary,
+    Field, Fields, FnArg, GenericArgument, GenericParam, Ident, ImplItem, ImplItemMethod,
+    ImplItemType, Item, ItemEnum, ItemFn, ItemImpl, ItemStruct, LifetimeDef, Lit, LitBool, LitInt,
+    Local, Pat, PatIdent, PatPath, PatTuple, PatType, Path, PathArguments, PathSegment,
+    PredicateType, QSelf, Receiver, ReturnType, Signature, Stmt, TraitBound, TraitBoundModifier,
+    Type, TypeParam, TypeParamBound, TypeParen, TypePath, TypeTraitObject, TypeTuple, UnOp,
+    Variant, Visibility, WherePredicate,
 };
 
 pub const IDENT_PREFIX: &str = "__TYP__";
