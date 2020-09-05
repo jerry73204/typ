@@ -2,10 +2,9 @@ use super::*;
 
 pub fn translate_unary_expr(
     ExprUnary { op, expr, .. }: &ExprUnary,
-    scope: &mut ScopeSet,
-    env: &mut Env,
+    scope: &mut Env,
 ) -> syn::Result<usize> {
-    let ty_id = translate_expr(expr, scope, env)?;
+    let ty_id = translate_expr(expr, scope)?;
 
     let trait_ = match op {
         UnOp::Neg(_) => {

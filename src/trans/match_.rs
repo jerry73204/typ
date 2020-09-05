@@ -1,18 +1,14 @@
 use super::*;
 use crate::parse::{GenericsAttr, SimpleTypeParam};
 
-pub fn translate_match_expr(
-    match_: &ExprMatch,
-    scope: &mut ScopeSet,
-    env: &mut Env,
-) -> syn::Result<usize>
+pub fn translate_match_expr(match_: &ExprMatch, scope: &mut Env) -> syn::Result<usize>
 where
 {
     let ExprMatch { expr, arms, .. } = match_;
 
     // parse matched expression
     let cond_id = match &**expr {
-        Expr::Path(path) => translate_path_expr(&path, scope, env)?,
+        Expr::Path(path) => translate_path_expr(&path, scope)?,
         _ => return Err(Error::new(expr.span(), "not a type")),
     };
     let cond_tokens = scope.pop(cond_id);
@@ -74,7 +70,7 @@ where
                 let cond_target = pat.into_pure_type()?;
 
                 let body_tokens = brancher.branch(cond_target, |sub_scope| -> syn::Result<_> {
-                    let body_id = translate_expr(body, sub_scope, env)?;
+                    let body_id = translate_expr(body, sub_scope)?;
                     let body_tokens = sub_scope.pop(body_id);
                     Ok(body_tokens)
                 })?;

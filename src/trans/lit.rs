@@ -1,10 +1,6 @@
 use super::*;
 
-pub fn translate_lit_expr(
-    expr: &ExprLit,
-    scope: &mut ScopeSet,
-    _env: &mut Env,
-) -> syn::Result<usize> {
+pub fn translate_lit_expr(expr: &ExprLit, scope: &mut Env) -> syn::Result<usize> {
     let ExprLit { lit, .. } = expr;
 
     // parse literal

@@ -1,32 +1,28 @@
 use super::*;
 
-pub fn translate_expr(expr: &Expr, scope: &mut ScopeSet, env: &mut Env) -> syn::Result<usize>
+pub fn translate_expr(expr: &Expr, scope: &mut Env) -> syn::Result<usize>
 where
 {
     dbg!();
     let ret = match expr {
-        Expr::Match(match_) => translate_match_expr(match_, scope, env),
-        Expr::Path(path) => translate_path_expr(path, scope, env),
-        Expr::Tuple(tuple) => translate_tuple_expr(tuple, scope, env),
-        Expr::Binary(binop) => translate_binary_expr(binop, scope, env),
-        Expr::If(if_) => translate_if_expr(if_, scope, env),
-        Expr::Block(block) => translate_block_expr(block, scope, env),
-        Expr::Call(call) => translate_call_expr(call, scope, env),
-        Expr::Paren(paren) => translate_expr(&paren.expr, scope, env),
-        Expr::Assign(assign) => translate_assign_expr(&assign, scope, env),
-        Expr::Lit(lit) => translate_lit_expr(&lit, scope, env),
-        Expr::Unary(unary) => translate_unary_expr(&unary, scope, env),
+        Expr::Match(match_) => translate_match_expr(match_, scope),
+        Expr::Path(path) => translate_path_expr(path, scope),
+        Expr::Tuple(tuple) => translate_tuple_expr(tuple, scope),
+        Expr::Binary(binop) => translate_binary_expr(binop, scope),
+        Expr::If(if_) => translate_if_expr(if_, scope),
+        Expr::Block(block) => translate_block_expr(block, scope),
+        Expr::Call(call) => translate_call_expr(call, scope),
+        Expr::Paren(paren) => translate_expr(&paren.expr, scope),
+        Expr::Assign(assign) => translate_assign_expr(&assign, scope),
+        Expr::Lit(lit) => translate_lit_expr(&lit, scope),
+        Expr::Unary(unary) => translate_unary_expr(&unary, scope),
         _ => Err(Error::new(expr.span(), "unsupported expression")),
     };
     dbg!();
     ret
 }
 
-pub fn translate_path_expr(
-    expr: &ExprPath,
-    scope: &mut ScopeSet,
-    _env: &mut Env,
-) -> syn::Result<usize>
+pub fn translate_path_expr(expr: &ExprPath, scope: &mut Env) -> syn::Result<usize>
 where
 {
     dbg!();
@@ -36,11 +32,7 @@ where
     Ok(id)
 }
 
-pub fn translate_tuple_expr(
-    tuple: &ExprTuple,
-    scope: &mut ScopeSet,
-    env: &mut Env,
-) -> syn::Result<usize>
+pub fn translate_tuple_expr(tuple: &ExprTuple, scope: &mut Env) -> syn::Result<usize>
 where
 {
     dbg!();
@@ -48,7 +40,7 @@ where
     let ids: Vec<_> = tuple
         .elems
         .iter()
-        .map(|expr| translate_expr(expr, scope, env))
+        .map(|expr| translate_expr(expr, scope))
         .try_collect()?;
     let branches_per_value: Vec<_> = ids.into_iter().map(|id| scope.pop(id)).collect();
 
@@ -66,19 +58,11 @@ where
     Ok(id)
 }
 
-pub fn translate_block_expr(
-    block: &ExprBlock,
-    scope: &mut ScopeSet,
-    env: &mut Env,
-) -> syn::Result<usize> {
-    translate_block(&block.block, scope, env)
+pub fn translate_block_expr(block: &ExprBlock, scope: &mut Env) -> syn::Result<usize> {
+    translate_block(&block.block, scope)
 }
 
-pub fn translate_call_expr(
-    call: &ExprCall,
-    scope: &mut ScopeSet,
-    env: &mut Env,
-) -> syn::Result<usize>
+pub fn translate_call_expr(call: &ExprCall, scope: &mut Env) -> syn::Result<usize>
 where
 {
     let ExprCall { func, args, .. } = call;
@@ -100,7 +84,7 @@ where
     dbg!();
     let arg_ids: Vec<_> = args
         .iter()
-        .map(|arg| translate_expr(arg, scope, env))
+        .map(|arg| translate_expr(arg, scope))
         .try_collect()?;
     dbg!();
 

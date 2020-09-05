@@ -1,6 +1,6 @@
 use super::*;
 
-pub fn translate_if_expr(if_: &ExprIf, scope: &mut ScopeSet, env: &mut Env) -> syn::Result<usize>
+pub fn translate_if_expr(if_: &ExprIf, scope: &mut Env) -> syn::Result<usize>
 where
 {
     let ExprIf {
@@ -12,7 +12,7 @@ where
 
     // generate predicate tokens
     let cond_tokens = {
-        let cond_ty_id = translate_expr(&*cond, scope, env)?;
+        let cond_ty_id = translate_expr(&*cond, scope)?;
         let cond_ty = scope.pop(cond_ty_id);
 
         let (cond_tokens, predicates): (Vec<_>, Vec<_>) = cond_ty
@@ -40,13 +40,13 @@ where
         Some((_else, else_expr)) => {
             let then_tokens =
                 brancher.branch(quote! { typenum::B1 }, |sub_scope| -> syn::Result<_> {
-                    let id = translate_block(then_branch, sub_scope, env)?;
+                    let id = translate_block(then_branch, sub_scope)?;
                     let tokens = sub_scope.pop(id);
                     Ok(tokens)
                 })?;
             let else_tokens =
                 brancher.branch(quote! { typenum::B0 }, |sub_scope| -> syn::Result<_> {
-                    let id = translate_expr(&**else_expr, sub_scope, env)?;
+                    let id = translate_expr(&**else_expr, sub_scope)?;
                     let tokens = sub_scope.pop(id);
                     Ok(tokens)
                 })?;
@@ -56,7 +56,7 @@ where
         None => {
             let then_tokens =
                 brancher.branch(quote! { typenum::B1 }, |sub_scope| -> syn::Result<_> {
-                    translate_block(then_branch, sub_scope, env)?;
+                    translate_block(then_branch, sub_scope)?;
                     let num_branches = sub_scope.num_branches();
                     let tokens: Vec<_> =
                         (0..num_branches).map(|_| Rc::new(quote! { () })).collect();

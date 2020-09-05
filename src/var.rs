@@ -1,15 +1,15 @@
 use crate::{
     common::*,
-    scope::{ScopeSet, Variable},
+    scope::{Env, Variable},
     utils::Shared,
 };
 
 pub trait ParseTypeVar {
-    fn parse_type_var(&self, scope: &ScopeSet) -> syn::Result<TypeVar>;
+    fn parse_type_var(&self, scope: &Env) -> syn::Result<TypeVar>;
 }
 
 impl ParseTypeVar for Type {
-    fn parse_type_var(&self, scope: &ScopeSet) -> syn::Result<TypeVar> {
+    fn parse_type_var(&self, scope: &Env) -> syn::Result<TypeVar> {
         let var = match self {
             Type::Path(TypePath { qself, path }) => match (qself, path.get_ident()) {
                 (Some(QSelf { ty, position, .. }), _) => TypeVar::Path(TypePathVar {
@@ -46,11 +46,11 @@ impl ParseTypeVar for Type {
 }
 
 pub trait ParsePathVar {
-    fn parse_path_var(&self, scope: &ScopeSet) -> syn::Result<PathVar>;
+    fn parse_path_var(&self, scope: &Env) -> syn::Result<PathVar>;
 }
 
 impl ParsePathVar for Path {
-    fn parse_path_var(&self, scope: &ScopeSet) -> syn::Result<PathVar> {
+    fn parse_path_var(&self, scope: &Env) -> syn::Result<PathVar> {
         let Path { segments, .. } = self;
         let segments: Vec<_> = segments
             .iter()
@@ -61,11 +61,11 @@ impl ParsePathVar for Path {
 }
 
 pub trait ParseSegmentVar {
-    fn parse_segment_var(&self, scope: &ScopeSet) -> syn::Result<SegmentVar>;
+    fn parse_segment_var(&self, scope: &Env) -> syn::Result<SegmentVar>;
 }
 
 impl ParseSegmentVar for PathSegment {
-    fn parse_segment_var(&self, scope: &ScopeSet) -> syn::Result<SegmentVar> {
+    fn parse_segment_var(&self, scope: &Env) -> syn::Result<SegmentVar> {
         let PathSegment { ident, arguments } = self;
         let arguments = match arguments {
             PathArguments::None => PathArgumentsVar::None,
@@ -98,11 +98,11 @@ impl ParseSegmentVar for PathSegment {
 }
 
 pub trait ParseTraitBoundVar {
-    fn parse_trait_bound_var(&self, scope: &ScopeSet) -> syn::Result<TraitBoundVar>;
+    fn parse_trait_bound_var(&self, scope: &Env) -> syn::Result<TraitBoundVar>;
 }
 
 impl ParseTraitBoundVar for TraitBound {
-    fn parse_trait_bound_var(&self, scope: &ScopeSet) -> syn::Result<TraitBoundVar> {
+    fn parse_trait_bound_var(&self, scope: &Env) -> syn::Result<TraitBoundVar> {
         let TraitBound { modifier, path, .. } = self;
         Ok(TraitBoundVar {
             modifier: modifier.to_owned(),
@@ -112,11 +112,11 @@ impl ParseTraitBoundVar for TraitBound {
 }
 
 pub trait ParsePredicateTypeVar {
-    fn parse_predicate_type_var(&self, scope: &ScopeSet) -> syn::Result<PredicateTypeVar>;
+    fn parse_predicate_type_var(&self, scope: &Env) -> syn::Result<PredicateTypeVar>;
 }
 
 impl ParsePredicateTypeVar for PredicateType {
-    fn parse_predicate_type_var(&self, scope: &ScopeSet) -> syn::Result<PredicateTypeVar> {
+    fn parse_predicate_type_var(&self, scope: &Env) -> syn::Result<PredicateTypeVar> {
         let PredicateType {
             lifetimes,
             bounded_ty,
@@ -146,11 +146,11 @@ impl ParsePredicateTypeVar for PredicateType {
 }
 
 pub trait ParseWherePredicateVar {
-    fn parse_where_predicate_var(&self, scope: &ScopeSet) -> syn::Result<WherePredicateVar>;
+    fn parse_where_predicate_var(&self, scope: &Env) -> syn::Result<WherePredicateVar>;
 }
 
 impl ParseWherePredicateVar for WherePredicate {
-    fn parse_where_predicate_var(&self, scope: &ScopeSet) -> syn::Result<WherePredicateVar> {
+    fn parse_where_predicate_var(&self, scope: &Env) -> syn::Result<WherePredicateVar> {
         match self {
             WherePredicate::Type(ty) => Ok(WherePredicateVar {
                 ty: ty.parse_predicate_type_var(scope)?,

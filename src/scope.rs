@@ -4,27 +4,27 @@ use crate::{
     var::{ParseTypeVar, TypeVar},
 };
 
+pub use env::*;
 pub use pure_trans::*;
-pub use scope::*;
 pub use substitute::*;
 
-mod scope {
+mod env {
     use super::*;
 
     #[derive(Debug)]
     pub struct Brancher<'a> {
         // cond id vs. tokens
         condition_ids: Vec<usize>,
-        orig: &'a mut ScopeSet,
+        orig: &'a mut Env,
         // target vs. scope set
-        branches: Vec<ScopeSet>,
+        branches: Vec<Env>,
     }
 
     impl<'a> Brancher<'a> {
         pub fn branch<T, F, R>(&mut self, target: T, f: F) -> R
         where
             T: IntoOwnedTokens,
-            F: FnOnce(&mut ScopeSet) -> R,
+            F: FnOnce(&mut Env) -> R,
         {
             // deep clone local states
             let locals: Vec<_> = self
@@ -48,7 +48,7 @@ mod scope {
                 });
 
             // build branched scope set
-            let mut branched = ScopeSet {
+            let mut branched = Env {
                 global: self.orig.global.clone(),
                 locals,
             };
@@ -57,7 +57,7 @@ mod scope {
             ret
         }
 
-        pub fn merge(self) -> &'a mut ScopeSet {
+        pub fn merge(self) -> &'a mut Env {
             // pop one subscope
             self.orig.global.borrow_mut().bounded_quantifiers.pop();
             self.orig.locals = self
@@ -76,12 +76,12 @@ mod scope {
     }
 
     #[derive(Debug)]
-    pub struct Scope {
+    pub struct LocalEnv {
         global: SharedCell<GlobalState>,
         local: SharedCell<LocalState>,
     }
 
-    impl Scope {
+    impl LocalEnv {
         // pub fn substitute_type<T>(&self, type_: &T) -> syn::Result<TokenStream>
         // where
         //     T: TypeSubst,
@@ -123,21 +123,21 @@ mod scope {
     }
 
     #[derive(Debug)]
-    pub struct ScopeSet {
+    pub struct Env {
         global: SharedCell<GlobalState>,
         locals: Vec<SharedCell<LocalState>>,
     }
 
-    impl ScopeSet {
+    impl Env {
         fn next_var_id(&self) -> usize {
             self.global.borrow().variables.len()
         }
 
-        fn scopes(&self) -> Vec<Scope> {
+        fn branches(&self) -> Vec<LocalEnv> {
             self.locals
                 .iter()
                 .cloned()
-                .map(|local| Scope {
+                .map(|local| LocalEnv {
                     global: self.global.clone(),
                     local,
                 })
@@ -210,7 +210,7 @@ mod scope {
         where
             T: TypeSubst,
         {
-            self.scopes()
+            self.branches()
                 .into_iter()
                 .map(|scope| type_.substitute_type(&scope))
                 .try_collect()
@@ -220,7 +220,7 @@ mod scope {
         where
             T: TraitSubst,
         {
-            self.scopes()
+            self.branches()
                 .into_iter()
                 .map(|scope| trait_.substitute_trait(&scope))
                 .try_collect()
@@ -230,7 +230,7 @@ mod scope {
         where
             T: TraitBoundsSubst,
         {
-            self.scopes()
+            self.branches()
                 .into_iter()
                 .map(|scope| trait_bounds.substitute_trait_bounds(&scope))
                 .try_collect()
@@ -438,7 +438,7 @@ mod scope {
 
         pub fn sub_scope<F, T>(&mut self, f: F) -> T
         where
-            F: FnOnce(&mut ScopeSet) -> T,
+            F: FnOnce(&mut Env) -> T,
         {
             // append one subscope
             self.global
@@ -836,30 +836,30 @@ mod substitute {
     // type substitution
 
     pub trait TypeSubst {
-        fn substitute_type(&self, scope: &Scope) -> syn::Result<TokenStream>;
+        fn substitute_type(&self, scope: &LocalEnv) -> syn::Result<TokenStream>;
     }
 
     impl TypeSubst for Ident {
-        fn substitute_type(&self, scope: &Scope) -> syn::Result<TokenStream> {
+        fn substitute_type(&self, scope: &LocalEnv) -> syn::Result<TokenStream> {
             type_subs::from_ident(scope, self)
         }
     }
 
     impl TypeSubst for Type {
-        fn substitute_type(&self, scope: &Scope) -> syn::Result<TokenStream> {
+        fn substitute_type(&self, scope: &LocalEnv) -> syn::Result<TokenStream> {
             type_subs::from_type(scope, self)
         }
     }
 
     impl TypeSubst for ExprPath {
-        fn substitute_type(&self, scope: &Scope) -> syn::Result<TokenStream> {
+        fn substitute_type(&self, scope: &LocalEnv) -> syn::Result<TokenStream> {
             let ExprPath { qself, path, .. } = self;
             type_subs::from_path(scope, qself.as_ref(), path)
         }
     }
 
     impl TypeSubst for Pat {
-        fn substitute_type(&self, scope: &Scope) -> syn::Result<TokenStream> {
+        fn substitute_type(&self, scope: &LocalEnv) -> syn::Result<TokenStream> {
             type_subs::from_pat(scope, self)
         }
     }
@@ -867,17 +867,17 @@ mod substitute {
     // trait substitution
 
     pub trait TraitSubst {
-        fn substitute_trait(&self, scope: &Scope) -> syn::Result<TokenStream>;
+        fn substitute_trait(&self, scope: &LocalEnv) -> syn::Result<TokenStream>;
     }
 
     impl TraitSubst for Path {
-        fn substitute_trait(&self, scope: &Scope) -> syn::Result<TokenStream> {
+        fn substitute_trait(&self, scope: &LocalEnv) -> syn::Result<TokenStream> {
             trait_subs::from_path(scope, self)
         }
     }
 
     impl TraitSubst for &[PathSegment] {
-        fn substitute_trait(&self, scope: &Scope) -> syn::Result<TokenStream> {
+        fn substitute_trait(&self, scope: &LocalEnv) -> syn::Result<TokenStream> {
             trait_subs::from_path_segments(scope, self.iter())
         }
     }
@@ -885,23 +885,23 @@ mod substitute {
     // trait bounds substitution
 
     pub trait TraitBoundsSubst {
-        fn substitute_trait_bounds(&self, scope: &Scope) -> syn::Result<TokenStream>;
+        fn substitute_trait_bounds(&self, scope: &LocalEnv) -> syn::Result<TokenStream>;
     }
 
     impl TraitBoundsSubst for &[Path] {
-        fn substitute_trait_bounds(&self, scope: &Scope) -> syn::Result<TokenStream> {
+        fn substitute_trait_bounds(&self, scope: &LocalEnv) -> syn::Result<TokenStream> {
             trait_bounds_subs::from_paths(scope, self.iter())
         }
     }
 
     impl TraitBoundsSubst for Type {
-        fn substitute_trait_bounds(&self, scope: &Scope) -> syn::Result<TokenStream> {
+        fn substitute_trait_bounds(&self, scope: &LocalEnv) -> syn::Result<TokenStream> {
             trait_bounds_subs::from_type(scope, self)
         }
     }
 
     impl TraitBoundsSubst for Punctuated<TypeParamBound, syn::token::Add> {
-        fn substitute_trait_bounds(&self, scope: &Scope) -> syn::Result<TokenStream> {
+        fn substitute_trait_bounds(&self, scope: &LocalEnv) -> syn::Result<TokenStream> {
             trait_bounds_subs::from_type_param_bounds(scope, self)
         }
     }
@@ -909,7 +909,7 @@ mod substitute {
     mod segment_subs {
         use super::*;
 
-        pub fn from_segments<I, P>(scope: &Scope, segments: I) -> syn::Result<TokenStream>
+        pub fn from_segments<I, P>(scope: &LocalEnv, segments: I) -> syn::Result<TokenStream>
         where
             I: IntoIterator<Item = P>,
             P: Borrow<PathSegment>,
@@ -966,7 +966,7 @@ mod substitute {
     mod type_subs {
         use super::*;
 
-        pub fn from_ident(scope: &Scope, ident: &Ident) -> syn::Result<TokenStream> {
+        pub fn from_ident(scope: &LocalEnv, ident: &Ident) -> syn::Result<TokenStream> {
             let expanded = scope
                 .get_quantifier_value(ident)
                 .map(|value| (*value).to_owned())
@@ -974,7 +974,7 @@ mod substitute {
             Ok(expanded)
         }
 
-        pub fn from_type(scope: &Scope, ty: &Type) -> syn::Result<TokenStream> {
+        pub fn from_type(scope: &LocalEnv, ty: &Type) -> syn::Result<TokenStream> {
             match ty {
                 Type::Path(TypePath { qself, path, .. }) => from_path(scope, qself.as_ref(), path),
                 Type::Paren(TypeParen { elem, .. }) => from_type(scope, &*elem),
@@ -990,7 +990,7 @@ mod substitute {
         }
 
         pub fn from_path(
-            scope: &Scope,
+            scope: &LocalEnv,
             qself: Option<&QSelf>,
             path: &Path,
         ) -> syn::Result<TokenStream> {
@@ -1021,7 +1021,7 @@ mod substitute {
             }
         }
 
-        pub fn from_pat(scope: &Scope, pat: &Pat) -> syn::Result<TokenStream> {
+        pub fn from_pat(scope: &LocalEnv, pat: &Pat) -> syn::Result<TokenStream> {
             match pat {
                 Pat::Ident(PatIdent { ident, .. }) => from_ident(scope, ident),
                 Pat::Path(PatPath { qself, path, .. }) => from_path(scope, qself.as_ref(), path),
@@ -1033,11 +1033,14 @@ mod substitute {
     mod trait_subs {
         use super::*;
 
-        pub fn from_path(scope: &Scope, Path { segments, .. }: &Path) -> syn::Result<TokenStream> {
+        pub fn from_path(
+            scope: &LocalEnv,
+            Path { segments, .. }: &Path,
+        ) -> syn::Result<TokenStream> {
             segment_subs::from_segments(scope, segments)
         }
 
-        pub fn from_path_segments<I, P>(scope: &Scope, segments: I) -> syn::Result<TokenStream>
+        pub fn from_path_segments<I, P>(scope: &LocalEnv, segments: I) -> syn::Result<TokenStream>
         where
             I: IntoIterator<Item = P>,
             P: Borrow<PathSegment>,
@@ -1049,7 +1052,7 @@ mod substitute {
     mod trait_bounds_subs {
         use super::*;
 
-        pub fn from_paths<I, P>(scope: &Scope, paths: I) -> syn::Result<TokenStream>
+        pub fn from_paths<I, P>(scope: &LocalEnv, paths: I) -> syn::Result<TokenStream>
         where
             I: IntoIterator<Item = P>,
             P: Borrow<Path>,
@@ -1061,7 +1064,7 @@ mod substitute {
             Ok(quote! { #(#traits)+* })
         }
 
-        pub fn from_type(scope: &Scope, ty: &Type) -> syn::Result<TokenStream> {
+        pub fn from_type(scope: &LocalEnv, ty: &Type) -> syn::Result<TokenStream> {
             let paths = match ty {
                 Type::Infer(_) => vec![],
                 Type::Path(TypePath { qself: Some(_), .. }) => {
@@ -1096,7 +1099,7 @@ mod substitute {
         }
 
         pub fn from_type_param_bounds(
-            scope: &Scope,
+            scope: &LocalEnv,
             bounds: &Punctuated<TypeParamBound, syn::token::Add>,
         ) -> syn::Result<TokenStream> {
             let paths: Vec<_> = bounds

@@ -13,8 +13,7 @@ mod unary;
 
 pub use crate::{
     common::*,
-    env::Env,
-    scope::{IntoPureTraitBounds, IntoPureType, ScopeSet},
+    scope::{Env, IntoPureTraitBounds, IntoPureType},
 };
 pub use assign::*;
 pub use binop::*;

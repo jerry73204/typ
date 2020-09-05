@@ -1,7 +1,6 @@
 #![feature(hash_set_entry)]
 
 mod common;
-mod env;
 mod parse;
 mod scope;
 mod trans;

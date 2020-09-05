@@ -4,15 +4,14 @@ pub fn translate_binary_expr(
     ExprBinary {
         left, right, op, ..
     }: &ExprBinary,
-    scope: &mut ScopeSet,
-    env: &mut Env,
+    scope: &mut Env,
 ) -> syn::Result<usize>
 where
 {
-    let lhs_id = translate_expr(left, scope, env)?;
-    let rhs_id = translate_expr(right, scope, env)?;
+    let lhs_id = translate_expr(left, scope)?;
+    let rhs_id = translate_expr(right, scope)?;
 
-    let std_bin_op = |scope: &mut ScopeSet, op_trait: TokenStream, lhs_id: usize, rhs_id: usize| {
+    let std_bin_op = |scope: &mut Env, op_trait: TokenStream, lhs_id: usize, rhs_id: usize| {
         let lhs_ty = scope.pop(lhs_id);
         let rhs_ty = scope.pop(rhs_id);
 
@@ -32,28 +31,27 @@ where
         scope.push(expanded)
     };
 
-    let typenum_bin_op =
-        |scope: &mut ScopeSet, op_trait: TokenStream, lhs_id: usize, rhs_id: usize| {
-            let lhs_ty = scope.pop(lhs_id);
-            let rhs_ty = scope.pop(rhs_id);
+    let typenum_bin_op = |scope: &mut Env, op_trait: TokenStream, lhs_id: usize, rhs_id: usize| {
+        let lhs_ty = scope.pop(lhs_id);
+        let rhs_ty = scope.pop(rhs_id);
 
-            let (expanded, predicates): (Vec<_>, Vec<_>) = lhs_ty
-                .into_iter()
-                .zip_eq(rhs_ty)
-                .map(|(lhs, rhs)| {
-                    let trait_pattern = quote! { #op_trait <#rhs> };
-                    let expanded = quote! {
-                        < #lhs as #trait_pattern > :: Output
-                    };
-                    let binop_predicate = (lhs, trait_pattern);
+        let (expanded, predicates): (Vec<_>, Vec<_>) = lhs_ty
+            .into_iter()
+            .zip_eq(rhs_ty)
+            .map(|(lhs, rhs)| {
+                let trait_pattern = quote! { #op_trait <#rhs> };
+                let expanded = quote! {
+                    < #lhs as #trait_pattern > :: Output
+                };
+                let binop_predicate = (lhs, trait_pattern);
 
-                    (expanded, binop_predicate)
-                })
-                .unzip();
+                (expanded, binop_predicate)
+            })
+            .unzip();
 
-            scope.insert_trait_bounds(predicates);
-            scope.push(expanded)
-        };
+        scope.insert_trait_bounds(predicates);
+        scope.push(expanded)
+    };
 
     let output_id = match op {
         BinOp::Add(_) => std_bin_op(scope, quote! { core::ops::Add }, lhs_id, rhs_id),

@@ -35,13 +35,8 @@ pub fn translate_fn(
         return Err(Error::new(var.span(), "variadic argument is not supported"));
     }
 
-    // create root scope and env
-    let mut env = Env::new();
-    let mod_name = format_ident!("{}mod_{}", IDENT_PREFIX, fn_name);
-    let mut sub_env = env
-        .create_mod(mod_name.clone())
-        .expect("please report bug: the mod name is taken");
-    let mut scope = ScopeSet::new();
+    // create root scope
+    let mut scope = Env::new();
 
     dbg!();
     // check if "self" is present in the input arguments and is consistent with impl block
@@ -150,7 +145,7 @@ pub fn translate_fn(
 
     // translate block
     dbg!();
-    let outputs_id = translate_block(&block, &mut scope, &mut sub_env)?;
+    let outputs_id = translate_block(&block, &mut scope)?;
     dbg!();
     let outputs_per_branch = scope.pop(outputs_id);
 

@@ -1,6 +1,6 @@
 use super::*;
 
-pub fn translate_block(block: &Block, scope: &mut ScopeSet, env: &mut Env) -> syn::Result<usize>
+pub fn translate_block(block: &Block, scope: &mut Env) -> syn::Result<usize>
 where
 {
     let mut output_ty = None;
@@ -47,7 +47,7 @@ where
                     };
 
                     // compute output type from expression
-                    let value_id = translate_expr(expr, scope, env)?;
+                    let value_id = translate_expr(expr, scope)?;
                     let values = scope.pop(value_id);
 
                     // add new bounded quantifier
@@ -72,12 +72,12 @@ where
                 }
                 Stmt::Expr(expr) => {
                     dbg!();
-                    output_ty = Some(translate_expr(expr, scope, env)?);
+                    output_ty = Some(translate_expr(expr, scope)?);
                     dbg!();
                 }
                 Stmt::Semi(expr, _semi) => {
                     dbg!();
-                    translate_expr(expr, scope, env)?;
+                    translate_expr(expr, scope)?;
                     output_ty = None;
                     dbg!();
                 }

@@ -1,10 +1,6 @@
 use super::*;
 
-pub fn translate_assign_expr(
-    assign: &ExprAssign,
-    scope: &mut ScopeSet,
-    env: &mut Env,
-) -> syn::Result<usize>
+pub fn translate_assign_expr(assign: &ExprAssign, scope: &mut Env) -> syn::Result<usize>
 where
 {
     let ExprAssign { left, right, .. } = assign;
@@ -19,7 +15,7 @@ where
     };
 
     // parse rhs
-    let value_id = translate_expr(right, scope, env)?;
+    let value_id = translate_expr(right, scope)?;
     let values: Vec<_> = scope.pop(value_id);
 
     // update state
