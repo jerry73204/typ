@@ -4,7 +4,7 @@ pub fn translate_lit_expr(expr: &ExprLit, scope: &mut Env) -> syn::Result<usize>
     let ExprLit { lit, .. } = expr;
 
     // parse literal
-    let tokens = match lit {
+    let lit_tokens = match lit {
         Lit::Bool(LitBool { value, .. }) => {
             if *value {
                 quote! { typenum::B1 }
@@ -31,12 +31,13 @@ pub fn translate_lit_expr(expr: &ExprLit, scope: &mut Env) -> syn::Result<usize>
         },
         _ => return Err(Error::new(lit.span(), "unsupported literal")),
     };
+    let lit_ty: TypeVar = syn::parse2(lit_tokens)?;
 
     let num_branches = scope.num_branches();
-    let expanded: Vec<_> = (0..num_branches).map(|_| tokens.clone()).collect();
-    let id = scope.push(expanded);
+    let output: Vec<_> = (0..num_branches).map(|_| lit_ty.clone()).collect();
+    let output_id = scope.push(output);
 
-    Ok(id)
+    Ok(output_id)
 }
 
 fn int_to_typenum(value: u128) -> TokenStream {
