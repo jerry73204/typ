@@ -16,15 +16,21 @@ where
 
     // parse rhs
     let value_id = translate_expr(right, scope)?;
-    let values: Vec<_> = scope.pop(value_id);
+    let values: Vec<_> = scope
+        .pop(value_id)
+        .into_iter()
+        .map(|var| var.into_type().unwrap())
+        .collect();
 
     // update state
     scope.assign_quantifier(ident, values)?;
 
     // expand return value
     let num_branches = scope.num_branches();
-    let expanded: Vec<_> = (0..num_branches).map(|_| quote! { () }).collect();
-    let id = scope.push(expanded);
+    let output: Vec<TypeVar> = (0..num_branches)
+        .map(|_| syn::parse2(quote! { () }).unwrap())
+        .collect();
+    let output_id = scope.push(output);
 
-    Ok(id)
+    Ok(output_id)
 }

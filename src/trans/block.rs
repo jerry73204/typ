@@ -10,7 +10,6 @@ where
         for stmt in block.stmts.iter() {
             match stmt {
                 Stmt::Local(local) => {
-                    dbg!();
                     // parse let statement as (let indent: trait_bounds = expr)
                     let (ident, ty_opt, is_mut, expr) = {
                         // check if the initial type is present
@@ -48,7 +47,11 @@ where
 
                     // compute output type from expression
                     let value_id = translate_expr(expr, scope)?;
-                    let values = scope.pop(value_id);
+                    let values: Vec<_> = scope
+                        .pop(value_id)
+                        .into_iter()
+                        .map(|var| var.into_type().unwrap())
+                        .collect();
 
                     // add new bounded quantifier
                     scope.insert_bounded_quantifier(ident.to_owned(), is_mut, values.clone());
@@ -59,27 +62,27 @@ where
                         let predicates: Vec<_> = values
                             .into_iter()
                             .zip_eq(trait_bounds)
-                            .map(|(ty, bounds)| (ty, bounds))
+                            .map(|(ty, bounds)| {
+                                WherePredicateVar::Type(PredicateTypeVar {
+                                    bounded_ty: ty,
+                                    bounds,
+                                })
+                            })
                             .collect();
-                        scope.insert_trait_bounds(predicates);
+                        scope.insert_predicate(predicates);
                     }
 
                     output_ty = None;
-                    dbg!();
                 }
                 Stmt::Item(item) => {
                     return Err(Error::new(item.span(), "in-block item is not allowed"))
                 }
                 Stmt::Expr(expr) => {
-                    dbg!();
                     output_ty = Some(translate_expr(expr, scope)?);
-                    dbg!();
                 }
                 Stmt::Semi(expr, _semi) => {
-                    dbg!();
                     translate_expr(expr, scope)?;
                     output_ty = None;
-                    dbg!();
                 }
             }
         }
@@ -87,12 +90,12 @@ where
         Ok(())
     })?;
 
-    dbg!();
-
     Ok(output_ty.unwrap_or_else(|| {
         let num_branches = scope.num_branches();
-        let expanded: Vec<_> = (0..num_branches).map(|_| quote! { () }).collect();
-        let id = scope.push(expanded);
+        let output: Vec<TypeVar> = (0..num_branches)
+            .map(|_| syn::parse2(quote! { () }).unwrap())
+            .collect();
+        let id = scope.push(output);
         id
     }))
 }
