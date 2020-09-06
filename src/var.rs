@@ -706,6 +706,14 @@ pub struct PathVar {
     pub segments: Vec<SegmentVar>,
 }
 
+impl Parse for PathVar {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let path: Path = input.parse()?;
+        let path = path.parse_pure_path()?;
+        Ok(path)
+    }
+}
+
 #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct QSelfVar {
     pub ty: Box<TypeVar>,

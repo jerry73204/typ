@@ -17,8 +17,8 @@ pub use crate::{
     utils::VecTranspose,
     var::{
         ParsePathVar, ParsePureType, ParsePureWherePredicate, ParseTypeParamBoundsVar,
-        ParseTypeVar, ParseWherePredicateVar, PathArgumentsVar, PredicateTypeVar, QSelfVar,
-        SegmentVar, TraitBoundModifierVar, TraitBoundVar, TypeParamBoundVar, TypePathVar,
+        ParseTypeVar, ParseWherePredicateVar, PathArgumentsVar, PathVar, PredicateTypeVar,
+        QSelfVar, SegmentVar, TraitBoundModifierVar, TraitBoundVar, TypeParamBoundVar, TypePathVar,
         TypeTupleVar, TypeVar, WherePredicateVar,
     },
 };
