@@ -1,7 +1,7 @@
 use crate::{
     common::*,
     utils::{IntoRc, Shared, SharedCell},
-    var::{TypeVar, WherePredicateVar},
+    var::{TypeVar, Var, WherePredicateVar},
 };
 
 pub use env::*;
@@ -277,7 +277,7 @@ mod env {
 
         pub fn push<T>(&mut self, values: Vec<T>) -> usize
         where
-            T: IntoRc<Inner = TypeVar>,
+            T: Into<Var>,
         {
             // sanity check
             assert_eq!(
@@ -300,13 +300,13 @@ mod env {
                     local
                         .borrow_mut()
                         .registers
-                        .insert(register_id, value.into_rc());
+                        .insert(register_id, value.into());
                 });
 
             register_id
         }
 
-        pub fn pop(&mut self, register_id: usize) -> Vec<Rc<TypeVar>> {
+        pub fn pop(&mut self, register_id: usize) -> Vec<Var> {
             self.locals
                 .iter()
                 .cloned()
@@ -403,7 +403,7 @@ mod env {
     pub struct LocalState {
         predicates: IndexSet<Rc<WherePredicateVar>>,
         namespace: Vec<HashMap<Rc<Ident>, Shared<Variable>>>,
-        registers: HashMap<usize, Rc<TypeVar>>,
+        registers: HashMap<usize, Var>,
         // cond id -> (condition, target)
         condition_targets: HashMap<usize, Rc<TypeVar>>,
     }

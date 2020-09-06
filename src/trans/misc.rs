@@ -3,7 +3,6 @@ use super::*;
 pub fn translate_expr(expr: &Expr, scope: &mut Env) -> syn::Result<usize>
 where
 {
-    dbg!();
     let ret = match expr {
         Expr::Match(match_) => translate_match_expr(match_, scope),
         Expr::Path(path) => translate_path_expr(path, scope),
@@ -18,43 +17,39 @@ where
         Expr::Unary(unary) => translate_unary_expr(&unary, scope),
         _ => Err(Error::new(expr.span(), "unsupported expression")),
     };
-    dbg!();
     ret
 }
 
 pub fn translate_path_expr(expr: &ExprPath, scope: &mut Env) -> syn::Result<usize>
 where
 {
-    dbg!();
-    let values = scope.substitute_type(expr)?;
+    let values = expr.parse_type_var(scope)?;
     let id = scope.push(values);
-    dbg!();
     Ok(id)
 }
 
 pub fn translate_tuple_expr(tuple: &ExprTuple, scope: &mut Env) -> syn::Result<usize>
 where
 {
-    dbg!();
     // translate each element
-    let ids: Vec<_> = tuple
+    let elems_ids: Vec<_> = tuple
         .elems
         .iter()
         .map(|expr| translate_expr(expr, scope))
         .try_collect()?;
-    let branches_per_value: Vec<_> = ids.into_iter().map(|id| scope.pop(id)).collect();
+    let elems_vec = elems_ids
+        .into_iter()
+        .map(|id| scope.pop(id))
+        .collect::<Vec<_>>()
+        .transpose_inplace();
 
     // merge tokens from each element
-    let values_per_branch = crate::utils::transpose(&branches_per_value);
-    let expanded: Vec<_> = values_per_branch
+    let types: Vec<_> = elems_vec
         .into_iter()
-        .map(|values| {
-            quote! { ( #(#values),* ) }
-        })
+        .map(|elems| TypeVar::Tuple(TypeTupleVar { elems }))
         .collect();
-    let id = scope.push(expanded);
+    let id = scope.push(types);
 
-    dbg!();
     Ok(id)
 }
 
@@ -67,59 +62,89 @@ where
 {
     let ExprCall { func, args, .. } = call;
 
-    // parse func name as trait
-    dbg!();
-    let func = match &**func {
+    // parse the function path to a trait path
+    let trait_paths = match &**func {
         Expr::Path(ExprPath {
             qself: None, path, ..
-        }) => scope.substitute_trait(path)?,
-        Expr::Path(ExprPath { qself: Some(_), .. }) => {
-            return Err(Error::new(func.span(), "not a trait"))
-        }
+        }) => path.parse_path_var(scope)?,
         _ => return Err(Error::new(func.span(), "not a trait")),
     };
-    let func_id = scope.push(func);
+    for path in trait_paths.iter() {
+        match path.segments.last().unwrap().arguments {
+            _ => {
+                return Err(Error::new(
+                    func.span(),
+                    "type parameters are not allowed in trait call",
+                ));
+            }
+            PathArgumentsVar::None => (),
+        }
+    }
+    let trait_paths_id = scope.push(trait_paths);
 
     // parse arguments
-    dbg!();
     let arg_ids: Vec<_> = args
         .iter()
         .map(|arg| translate_expr(arg, scope))
         .try_collect()?;
-    dbg!();
-
-    dbg!();
-    let func_tokens = scope.pop(func_id);
-    dbg!();
-    let branches_per_arg: Vec<_> = arg_ids.into_iter().map(|id| scope.pop(id)).collect();
-    dbg!();
-    let args_per_branch = crate::utils::transpose(&branches_per_arg);
-    dbg!();
-
-    dbg!();
-    let (expanded, predicates): (Vec<_>, Vec<_>) = func_tokens
+    let args_vec: Vec<_> = arg_ids
         .into_iter()
-        .zip_eq(args_per_branch)
-        .map(|(func, args)| {
-            // expand trait "call"
-            let func_trait = if args.is_empty() {
-                quote! { #func }
-            } else {
-                quote! { #func < #(#args),* >  }
+        .map(|id| scope.pop(id))
+        .collect::<Vec<_>>()
+        .transpose_inplace();
+    let trait_paths = scope.pop(trait_paths_id);
+
+    // insert predicates
+    let (outputs, predicates): (Vec<_>, Vec<_>) = trait_paths
+        .into_iter()
+        .zip_eq(args_vec)
+        .map(|(trait_, args)| {
+            let mut trait_ = trait_.into_path().unwrap();
+            let args: Vec<_> = args
+                .into_iter()
+                .map(|arg| arg.into_type().unwrap())
+                .collect();
+
+            // set the type arguments on trait
+            trait_.segments.last().as_mut().unwrap().arguments =
+                PathArgumentsVar::AngleBracketed(args);
+
+            // construct the output type
+            let bounded_ty: TypeVar = syn::parse2(quote! { () }).unwrap();
+            let output = {
+                let position = trait_.segments.len();
+                let path = {
+                    let mut path = trait_.clone();
+                    path.segments.push(SegmentVar {
+                        ident: format_ident!("Output"),
+                        arguments: PathArgumentsVar::None,
+                    });
+                    path
+                };
+                TypeVar::Path(TypePathVar {
+                    qself: Some(QSelfVar {
+                        ty: Box::new(bounded_ty.clone()),
+                        position,
+                    }),
+                    path,
+                })
             };
-            let expanded = quote! { < () as #func_trait >::Output };
 
-            // expand trait bounds
-            let ty = quote! { () };
-            let bounds = func_trait;
+            // construct the predicate
+            let predicate = WherePredicateVar::Type(PredicateTypeVar {
+                bounded_ty,
+                bounds: vec![TypeParamBoundVar::Trait(TraitBoundVar {
+                    modifier: TraitBoundModifierVar::None,
+                    path: trait_,
+                })],
+            });
 
-            (expanded, (ty, bounds))
+            (output, predicate)
         })
         .unzip();
 
-    dbg!();
-    scope.insert_trait_bounds(predicates);
-    let id = scope.push(expanded);
+    scope.insert_predicate(predicates);
+    let output_id = scope.push(outputs);
 
-    Ok(id)
+    Ok(output_id)
 }

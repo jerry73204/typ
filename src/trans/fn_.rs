@@ -83,14 +83,14 @@ pub fn translate_fn(
         // insert trait bounds
         dbg!();
         for param in generics.params.iter() {
-            let predicate = param.parse_pure_where_predicate()?;
-            scope.insert_trait_bounds(vec![predicate]);
+            let predicate = param.parse_where_predicate_var(&scope)?;
+            scope.insert_predicate(predicate);
         }
 
         if let Some(where_clause) = generics.where_clause {
             for predicate in where_clause.predicates {
-                let predicate = predicate.parse_pure_where_predicate()?;
-                scope.insert_trait_bounds(vec![predicate]);
+                let predicate = predicate.parse_where_predicate_var(&scope)?;
+                scope.insert_predicate(predicate);
             }
         }
 
@@ -143,7 +143,7 @@ pub fn translate_fn(
         for arg in inputs.iter() {
             if let FnArg::Typed(pat_type) = arg {
                 let predicate = pat_type.parse_where_predicate_var(&scope)?;
-                scope.insert_trait_bounds(vec![predicate]);
+                scope.insert_predicate(predicate);
             }
         }
 

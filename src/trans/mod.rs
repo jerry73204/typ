@@ -14,9 +14,12 @@ mod unary;
 pub use crate::{
     common::*,
     env::Env,
+    utils::VecTranspose,
     var::{
-        ParsePureType, ParsePureWherePredicate, ParseTypeParamBoundsVar, ParseTypeVar,
-        ParseWherePredicateVar,
+        ParsePathVar, ParsePureType, ParsePureWherePredicate, ParseTypeParamBoundsVar,
+        ParseTypeVar, ParseWherePredicateVar, PathArgumentsVar, PredicateTypeVar, QSelfVar,
+        SegmentVar, TraitBoundModifierVar, TraitBoundVar, TypeParamBoundVar, TypePathVar,
+        TypeTupleVar, TypeVar, WherePredicateVar,
     },
 };
 pub use assign::*;

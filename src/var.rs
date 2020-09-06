@@ -304,6 +304,70 @@ impl ParseTypeVar for Pat {
     }
 }
 
+impl ParseTypeVar for Ident {
+    fn parse_type_var(&self, scope: &Env) -> syn::Result<Vec<TypeVar>> {
+        let vars: Vec<_> = match scope.get_variable(self) {
+            Some(vars) => vars.into_iter().map(|var| TypeVar::Var(var)).collect(),
+            None => {
+                let var = TypeVar::Path(TypePathVar {
+                    qself: None,
+                    path: PathVar {
+                        segments: vec![SegmentVar {
+                            ident: self.to_owned(),
+                            arguments: PathArgumentsVar::None,
+                        }],
+                    },
+                });
+                let num_branches = scope.num_branches();
+                (0..num_branches).map(|_| var.clone()).collect()
+            }
+        };
+        Ok(vars)
+    }
+}
+
+impl ParseTypeVar for ExprPath {
+    fn parse_type_var(&self, scope: &Env) -> syn::Result<Vec<TypeVar>> {
+        let ExprPath { qself, path, .. } = self;
+        let vars: Vec<_> = match (qself, path.get_ident()) {
+            (Some(QSelf { ty, position, .. }), _) => {
+                let tys = ty.parse_type_var(scope)?;
+                let paths = path.parse_path_var(scope)?;
+                tys.into_iter()
+                    .zip_eq(paths)
+                    .map(|(ty, path)| {
+                        TypeVar::Path(TypePathVar {
+                            qself: Some(QSelfVar {
+                                ty: Box::new(ty),
+                                position: *position,
+                            }),
+                            path,
+                        })
+                    })
+                    .collect()
+            }
+            (None, Some(ident)) => match scope.get_variable(ident) {
+                Some(vars) => vars.into_iter().map(|var| TypeVar::Var(var)).collect(),
+                None => {
+                    let paths = path.parse_path_var(scope)?;
+                    paths
+                        .into_iter()
+                        .map(|path| TypeVar::Path(TypePathVar { qself: None, path }))
+                        .collect()
+                }
+            },
+            (None, None) => {
+                let paths = path.parse_path_var(scope)?;
+                paths
+                    .into_iter()
+                    .map(|path| TypeVar::Path(TypePathVar { qself: None, path }))
+                    .collect()
+            }
+        };
+        Ok(vars)
+    }
+}
+
 pub trait ParsePathVar {
     fn parse_path_var(&self, scope: &Env) -> syn::Result<Vec<PathVar>>;
 }
@@ -455,6 +519,37 @@ impl ParseWherePredicateVar for WherePredicate {
     }
 }
 
+impl ParseWherePredicateVar for GenericParam {
+    fn parse_where_predicate_var(&self, scope: &Env) -> syn::Result<Vec<WherePredicateVar>> {
+        match self {
+            GenericParam::Type(TypeParam { ident, bounds, .. }) => {
+                let bounded_ty_vec = ident.parse_type_var(scope)?;
+                let bounds_vec = bounds
+                    .iter()
+                    .map(|bound| bound.parse_type_param_bound_var(scope))
+                    .try_collect::<_, Vec<_>, _>()?
+                    .transpose_inplace();
+
+                let vars: Vec<_> = bounded_ty_vec
+                    .into_iter()
+                    .zip_eq(bounds_vec)
+                    .map(|(bounded_ty, bounds)| {
+                        WherePredicateVar::Type(PredicateTypeVar { bounded_ty, bounds })
+                    })
+                    .collect();
+
+                Ok(vars)
+            }
+            GenericParam::Lifetime(_) => {
+                return Err(Error::new(self.span(), "lifetime is not supported"));
+            }
+            GenericParam::Const(_) => {
+                return Err(Error::new(self.span(), "const generics is not supported"));
+            }
+        }
+    }
+}
+
 impl ParseWherePredicateVar for PatType {
     fn parse_where_predicate_var(&self, scope: &Env) -> syn::Result<Vec<WherePredicateVar>> {
         let PatType { pat, ty, .. } = self;
@@ -535,11 +630,57 @@ impl ParseTypeParamBoundsVar for Type {
     }
 }
 
+// types
+
+#[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub enum Var {
+    Type(TypeVar),
+    Path(PathVar),
+}
+
+impl Var {
+    pub fn into_type(self) -> Option<TypeVar> {
+        match self {
+            Self::Type(ty) => Some(ty),
+            _ => None,
+        }
+    }
+}
+
+impl Var {
+    pub fn into_path(self) -> Option<PathVar> {
+        match self {
+            Self::Path(path) => Some(path),
+            _ => None,
+        }
+    }
+}
+
+impl From<TypeVar> for Var {
+    fn from(from: TypeVar) -> Self {
+        Self::Type(from)
+    }
+}
+
+impl From<PathVar> for Var {
+    fn from(from: PathVar) -> Self {
+        Self::Path(from)
+    }
+}
+
 #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub enum TypeVar {
     Var(Shared<Variable>),
     Path(TypePathVar),
     Tuple(TypeTupleVar),
+}
+
+impl Parse for TypeVar {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let ty: Type = input.parse()?;
+        let ty = ty.parse_pure_type()?;
+        Ok(ty)
+    }
 }
 
 #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
