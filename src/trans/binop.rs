@@ -93,12 +93,12 @@ fn std_bin_op(
         .map(|(lhs, rhs)| {
             let trait_ = {
                 let mut path = trait_path.clone();
-                path.segments.last().as_mut().unwrap().arguments =
+                path.segments.last_mut().as_mut().unwrap().arguments =
                     PathArgumentsVar::AngleBracketed(vec![rhs]);
                 path
             };
             let path = {
-                let path = trait_.clone();
+                let mut path = trait_.clone();
                 path.segments.push(SegmentVar {
                     ident: format_ident!("Output"),
                     arguments: PathArgumentsVar::None,
@@ -109,7 +109,7 @@ fn std_bin_op(
                 bounded_ty: lhs.clone(),
                 bounds: vec![TypeParamBoundVar::Trait(TraitBoundVar {
                     modifier: TraitBoundModifierVar::None,
-                    path: trait_,
+                    path: trait_.clone(),
                 })],
             });
             let output = TypeVar::Path(TypePathVar {
@@ -153,12 +153,12 @@ fn typenum_bin_op(
         .map(|(lhs, rhs)| {
             let trait_ = {
                 let mut path = trait_path.clone();
-                path.segments.last().as_mut().unwrap().arguments =
+                path.segments.last_mut().as_mut().unwrap().arguments =
                     PathArgumentsVar::AngleBracketed(vec![rhs]);
                 path
             };
             let path = {
-                let path = trait_.clone();
+                let mut path = trait_.clone();
                 path.segments.push(SegmentVar {
                     ident: format_ident!("Output"),
                     arguments: PathArgumentsVar::None,
@@ -167,13 +167,13 @@ fn typenum_bin_op(
             };
             let output = TypeVar::Path(TypePathVar {
                 qself: Some(QSelfVar {
-                    ty: Box::new(lhs),
+                    ty: Box::new(lhs.clone()),
                     position: trait_.segments.len(),
                 }),
                 path,
             });
             let apply_predicate = WherePredicateVar::Type(PredicateTypeVar {
-                bounded_ty: lhs.clone(),
+                bounded_ty: lhs,
                 bounds: vec![TypeParamBoundVar::Trait(TraitBoundVar {
                     modifier: TraitBoundModifierVar::None,
                     path: trait_,

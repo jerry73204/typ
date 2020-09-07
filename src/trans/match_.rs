@@ -1,6 +1,28 @@
 use super::*;
 use crate::parse::{GenericsAttr, SimpleTypeParam};
 
+// trait List {}
+
+// struct Cons<Head, Tail>
+// where
+//     Tail: List,
+// {
+//     head: Head,
+//     tail: Tail,
+// }
+// impl<Head, Tail> List for Cons<Head, Tail> where Tail: List {}
+
+// struct Nil;
+// impl List for Nil {}
+
+// trait Append<T> {
+//     type Output<X>;
+// }
+
+// impl<T> Append<T> for () {
+//     type Output<X> = X;
+// }
+
 pub fn translate_match_expr(match_: &ExprMatch, scope: &mut Env) -> syn::Result<usize>
 where
 {
@@ -11,9 +33,13 @@ where
         Expr::Path(path) => translate_path_expr(&path, scope)?,
         _ => return Err(Error::new(expr.span(), "not a type")),
     };
-    let cond_tokens = scope.pop(cond_id);
+    let conds: Vec<_> = scope
+        .pop(cond_id)
+        .into_iter()
+        .map(|var| var.into_type().unwrap())
+        .collect();
 
-    let mut brancher = scope.into_brancher(cond_tokens);
+    let mut brancher = scope.into_brancher(conds);
 
     // generate impl items
     let tokens_per_branch: Vec<_> = arms
@@ -26,7 +52,6 @@ where
                 // parse attributes
                 let generics_attr = {
                     let mut generics_attr = None;
-
                     for attr in attrs.iter() {
                         let Attribute { style, path, .. } = attr;
 
@@ -55,34 +80,33 @@ where
                             }
                         }
                     }
-
                     generics_attr
                 };
 
-                match generics_attr {
-                    Some(attr) => {
-                        let generics: GenericsAttr = syn::parse2(attr.tokens.to_owned())?;
-                        dbg!(generics);
-                    }
-                    None => {}
+                // insert new free quantifiers
+                if let Some(attr) = generics_attr {
+                    let GenericsAttr { params } = syn::parse2(attr.tokens.to_owned())?;
                 }
 
-                let cond_target = pat.into_pure_type()?;
+                // let cond_target = pat.into_pure_type()?;
 
-                let body_tokens = brancher.branch(cond_target, |sub_scope| -> syn::Result<_> {
-                    let body_id = translate_expr(body, sub_scope)?;
-                    let body_tokens = sub_scope.pop(body_id);
-                    Ok(body_tokens)
-                })?;
+                // let body_tokens = brancher.branch(cond_target, |sub_env| -> syn::Result<_> {
+                //     let body_id = translate_expr(body, sub_env)?;
+                //     let body_tokens = sub_enc.pop(body_id);
+                //     Ok(body_tokens)
+                // })?;
 
-                Ok(body_tokens)
+                // Ok(body_tokens)
+                todo!();
+                Ok(())
             },
         )
         .try_collect()?;
-    let tokens: Vec<_> = tokens_per_branch.into_iter().flatten().collect();
+    // let tokens: Vec<_> = tokens_per_branch.into_iter().flatten().collect();
 
-    let scope = brancher.merge();
-    let output_id = scope.push(tokens);
+    // let scope = brancher.merge();
+    // let output_id = scope.push(tokens);
 
-    Ok(output_id)
+    // Ok(output_id)
+    todo!();
 }

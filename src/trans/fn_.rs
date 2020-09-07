@@ -87,8 +87,8 @@ pub fn translate_fn(
             scope.insert_predicate(predicate);
         }
 
-        if let Some(where_clause) = generics.where_clause {
-            for predicate in where_clause.predicates {
+        if let Some(where_clause) = &generics.where_clause {
+            for predicate in where_clause.predicates.iter() {
                 let predicate = predicate.parse_where_predicate_var(&scope)?;
                 scope.insert_predicate(predicate);
             }

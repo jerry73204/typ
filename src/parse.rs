@@ -47,7 +47,6 @@ impl Parse for GenericsAttr {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let content;
         syn::parenthesized!(content in input);
-
         let params = Punctuated::parse_terminated(&content)?;
         Ok(Self { params })
     }

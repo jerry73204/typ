@@ -24,7 +24,7 @@ pub fn translate_unary_expr(
                     };
                     let output = TypeVar::Path(TypePathVar {
                         qself: Some(QSelfVar {
-                            ty: Box::new(bounded_ty),
+                            ty: Box::new(bounded_ty.clone()),
                             position: trait_.segments.len(),
                         }),
                         path,
@@ -61,7 +61,7 @@ pub fn translate_unary_expr(
                     };
                     let output = TypeVar::Path(TypePathVar {
                         qself: Some(QSelfVar {
-                            ty: Box::new(bounded_ty),
+                            ty: Box::new(bounded_ty.clone()),
                             position: trait_.segments.len(),
                         }),
                         path,
@@ -98,7 +98,7 @@ pub fn translate_unary_expr(
                     };
                     let output = TypeVar::Path(TypePathVar {
                         qself: Some(QSelfVar {
-                            ty: Box::new(bounded_ty),
+                            ty: Box::new(bounded_ty.clone()),
                             position: trait_.segments.len(),
                         }),
                         path,

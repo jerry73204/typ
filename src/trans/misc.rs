@@ -46,7 +46,14 @@ where
     // merge tokens from each element
     let types: Vec<_> = elems_vec
         .into_iter()
-        .map(|elems| TypeVar::Tuple(TypeTupleVar { elems }))
+        .map(|elems| {
+            TypeVar::Tuple(TypeTupleVar {
+                elems: elems
+                    .into_iter()
+                    .map(|elem| elem.into_type().unwrap())
+                    .collect(),
+            })
+        })
         .collect();
     let id = scope.push(types);
 
@@ -106,7 +113,7 @@ where
                 .collect();
 
             // set the type arguments on trait
-            trait_.segments.last().as_mut().unwrap().arguments =
+            trait_.segments.last_mut().as_mut().unwrap().arguments =
                 PathArgumentsVar::AngleBracketed(args);
 
             // construct the output type
