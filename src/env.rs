@@ -111,6 +111,26 @@ mod env {
             }
         }
 
+        pub fn mutable_quantifiers(&self) -> Vec<Shared<Variable>> {
+            let (_shadowed, output) = self.namespace.iter().rev().fold(
+                (HashSet::new(), vec![]),
+                |mut state, variables| {
+                    let (shadowed, output) = &mut state;
+
+                    variables.iter().for_each(|(ident, var)| {
+                        if shadowed.insert(ident.to_owned()) {
+                            if var.is_mut {
+                                output.push(var.clone());
+                            }
+                        }
+                    });
+
+                    state
+                },
+            );
+            output
+        }
+
         pub fn sub_scope<F, T>(&mut self, f: F) -> T
         where
             F: FnOnce(&mut Env) -> T,
