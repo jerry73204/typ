@@ -199,105 +199,73 @@ impl ParsePureTraitBound for TraitBound {
 // parse with substitutions
 
 pub trait ParseTypeVar {
-    fn parse_type_var(&self, scope: &Env) -> syn::Result<Vec<TypeVar>>;
+    fn parse_type_var(&self, scope: &Env) -> syn::Result<TypeVar>;
 }
 
 impl ParseTypeVar for Type {
-    fn parse_type_var(&self, scope: &Env) -> syn::Result<Vec<TypeVar>> {
-        let var: Vec<_> = match self {
+    fn parse_type_var(&self, scope: &Env) -> syn::Result<TypeVar> {
+        let ty = match self {
             Type::Path(TypePath { qself, path }) => match (qself, path.get_ident()) {
                 (Some(QSelf { ty, position, .. }), _) => {
-                    let tys = ty.parse_type_var(scope)?;
-                    let paths = path.parse_path_var(scope)?;
-                    tys.into_iter()
-                        .zip_eq(paths)
-                        .map(|(ty, path)| {
-                            TypeVar::Path(TypePathVar {
-                                qself: Some(QSelfVar {
-                                    ty: Box::new(ty),
-                                    position: *position,
-                                }),
-                                path,
-                            })
-                        })
-                        .collect()
+                    let ty = ty.parse_type_var(scope)?;
+                    let path = path.parse_path_var(scope)?;
+                    TypeVar::Path(TypePathVar {
+                        qself: Some(QSelfVar {
+                            ty: Box::new(ty),
+                            position: *position,
+                        }),
+                        path,
+                    })
                 }
                 (None, Some(ident)) => match scope.get_variable(ident) {
-                    Some(vars) => vars.into_iter().map(|var| TypeVar::Var(var)).collect(),
+                    Some(var) => TypeVar::Var(var),
                     None => {
-                        let paths = path.parse_path_var(scope)?;
-                        paths
-                            .into_iter()
-                            .map(|path| TypeVar::Path(TypePathVar { qself: None, path }))
-                            .collect()
+                        let path = path.parse_path_var(scope)?;
+                        TypeVar::Path(TypePathVar { qself: None, path })
                     }
                 },
                 (None, None) => {
-                    let paths = path.parse_path_var(scope)?;
-                    paths
-                        .into_iter()
-                        .map(|path| TypeVar::Path(TypePathVar { qself: None, path }))
-                        .collect()
+                    let path = path.parse_path_var(scope)?;
+                    TypeVar::Path(TypePathVar { qself: None, path })
                 }
             },
             Type::Tuple(TypeTuple { elems, .. }) => {
-                let elems_per_branch: Vec<_> = elems
+                let elems: Vec<_> = elems
                     .iter()
                     .map(|elem| elem.parse_type_var(scope))
-                    .try_collect::<_, Vec<_>, _>()?
-                    .transpose_inplace();
-
-                elems_per_branch
-                    .into_iter()
-                    .map(|elems| TypeVar::Tuple(TypeTupleVar { elems }))
-                    .collect()
+                    .try_collect()?;
+                TypeVar::Tuple(TypeTupleVar { elems })
             }
             Type::Paren(TypeParen { elem, .. }) => elem.parse_type_var(scope)?,
             _ => return Err(Error::new(self.span(), "unsupported type variant")),
         };
-        Ok(var)
+        Ok(ty)
     }
 }
 
 impl ParseTypeVar for Pat {
-    fn parse_type_var(&self, scope: &Env) -> syn::Result<Vec<TypeVar>> {
+    fn parse_type_var(&self, scope: &Env) -> syn::Result<TypeVar> {
         match self {
             Pat::Path(PatPath { qself, path, .. }) => {
-                let qselfs = match qself {
+                let qself = match qself {
                     Some(QSelf { ty, position, .. }) => {
-                        let tys = ty.parse_type_var(scope)?;
-                        let qselfs: Vec<_> = tys
-                            .into_iter()
-                            .map(|ty| {
-                                Some(QSelfVar {
-                                    ty: Box::new(ty),
-                                    position: *position,
-                                })
-                            })
-                            .collect();
-                        qselfs
+                        let ty = ty.parse_type_var(scope)?;
+                        Some(QSelfVar {
+                            ty: Box::new(ty),
+                            position: *position,
+                        })
                     }
-                    None => vec![None; scope.num_branches()],
+                    None => None,
                 };
-                let paths = path.parse_path_var(scope)?;
-                let tys: Vec<_> = qselfs
-                    .into_iter()
-                    .zip_eq(paths)
-                    .map(|(qself, path)| TypeVar::Path(TypePathVar { qself, path }))
-                    .collect();
-
-                Ok(tys)
+                let path = path.parse_path_var(scope)?;
+                Ok(TypeVar::Path(TypePathVar { qself, path }))
             }
             Pat::Tuple(PatTuple { elems, .. }) => {
-                let tys: Vec<_> = elems
+                let elems: Vec<_> = elems
                     .iter()
                     .map(|elem| elem.parse_type_var(scope))
-                    .try_collect::<_, Vec<_>, _>()?
-                    .transpose_inplace()
-                    .into_iter()
-                    .map(|elems| TypeVar::Tuple(TypeTupleVar { elems }))
-                    .collect();
-                Ok(tys)
+                    .try_collect()?;
+                Ok(TypeVar::Tuple(TypeTupleVar { elems }))
             }
             _ => Err(Error::new(self.span(), "not a type")),
         }
@@ -305,156 +273,126 @@ impl ParseTypeVar for Pat {
 }
 
 impl ParseTypeVar for Ident {
-    fn parse_type_var(&self, scope: &Env) -> syn::Result<Vec<TypeVar>> {
-        let vars: Vec<_> = match scope.get_variable(self) {
-            Some(vars) => vars.into_iter().map(|var| TypeVar::Var(var)).collect(),
-            None => {
-                let var = TypeVar::Path(TypePathVar {
-                    qself: None,
-                    path: PathVar {
-                        segments: vec![SegmentVar {
-                            ident: self.to_owned(),
-                            arguments: PathArgumentsVar::None,
-                        }],
-                    },
-                });
-                let num_branches = scope.num_branches();
-                (0..num_branches).map(|_| var.clone()).collect()
-            }
-        };
-        Ok(vars)
+    fn parse_type_var(&self, scope: &Env) -> syn::Result<TypeVar> {
+        match scope.get_variable(self) {
+            Some(var) => Ok(TypeVar::Var(var)),
+            None => Ok(TypeVar::Path(TypePathVar {
+                qself: None,
+                path: PathVar {
+                    segments: vec![SegmentVar {
+                        ident: self.to_owned(),
+                        arguments: PathArgumentsVar::None,
+                    }],
+                },
+            })),
+        }
     }
 }
 
 impl ParseTypeVar for ExprPath {
-    fn parse_type_var(&self, scope: &Env) -> syn::Result<Vec<TypeVar>> {
+    fn parse_type_var(&self, scope: &Env) -> syn::Result<TypeVar> {
         let ExprPath { qself, path, .. } = self;
-        let vars: Vec<_> = match (qself, path.get_ident()) {
+        let var = match (qself, path.get_ident()) {
             (Some(QSelf { ty, position, .. }), _) => {
-                let tys = ty.parse_type_var(scope)?;
-                let paths = path.parse_path_var(scope)?;
-                tys.into_iter()
-                    .zip_eq(paths)
-                    .map(|(ty, path)| {
-                        TypeVar::Path(TypePathVar {
-                            qself: Some(QSelfVar {
-                                ty: Box::new(ty),
-                                position: *position,
-                            }),
-                            path,
-                        })
-                    })
-                    .collect()
+                let ty = ty.parse_type_var(scope)?;
+                let path = path.parse_path_var(scope)?;
+                TypeVar::Path(TypePathVar {
+                    qself: Some(QSelfVar {
+                        ty: Box::new(ty),
+                        position: *position,
+                    }),
+                    path,
+                })
             }
             (None, Some(ident)) => match scope.get_variable(ident) {
-                Some(vars) => vars.into_iter().map(|var| TypeVar::Var(var)).collect(),
+                Some(var) => TypeVar::Var(var),
                 None => {
-                    let paths = path.parse_path_var(scope)?;
-                    paths
-                        .into_iter()
-                        .map(|path| TypeVar::Path(TypePathVar { qself: None, path }))
-                        .collect()
+                    let path = path.parse_path_var(scope)?;
+                    TypeVar::Path(TypePathVar { qself: None, path })
                 }
             },
             (None, None) => {
-                let paths = path.parse_path_var(scope)?;
-                paths
-                    .into_iter()
-                    .map(|path| TypeVar::Path(TypePathVar { qself: None, path }))
-                    .collect()
+                let path = path.parse_path_var(scope)?;
+                TypeVar::Path(TypePathVar { qself: None, path })
             }
         };
-        Ok(vars)
+        Ok(var)
     }
 }
 
 pub trait ParsePathVar {
-    fn parse_path_var(&self, scope: &Env) -> syn::Result<Vec<PathVar>>;
+    fn parse_path_var(&self, scope: &Env) -> syn::Result<PathVar>;
 }
 
 impl ParsePathVar for Path {
-    fn parse_path_var(&self, scope: &Env) -> syn::Result<Vec<PathVar>> {
+    fn parse_path_var(&self, scope: &Env) -> syn::Result<PathVar> {
         let Path { segments, .. } = self;
-        let vars: Vec<_> = segments
+        let segments: Vec<_> = segments
             .iter()
             .map(|segment| segment.parse_segment_var(scope))
-            .try_collect::<_, Vec<_>, _>()?
-            .transpose_inplace()
-            .into_iter()
-            .map(|segments| PathVar { segments })
-            .collect();
-        Ok(vars)
+            .try_collect()?;
+        Ok(PathVar { segments })
     }
 }
 
 pub trait ParseSegmentVar {
-    fn parse_segment_var(&self, scope: &Env) -> syn::Result<Vec<SegmentVar>>;
+    fn parse_segment_var(&self, scope: &Env) -> syn::Result<SegmentVar>;
 }
 
 impl ParseSegmentVar for PathSegment {
-    fn parse_segment_var(&self, scope: &Env) -> syn::Result<Vec<SegmentVar>> {
+    fn parse_segment_var(&self, scope: &Env) -> syn::Result<SegmentVar> {
         let PathSegment { ident, arguments } = self;
-        let arguments_vec: Vec<_> = match arguments {
-            PathArguments::None => vec![PathArgumentsVar::None; scope.num_branches()],
-            PathArguments::AngleBracketed(args) => args
-                .args
-                .iter()
-                .map(|arg| match arg {
-                    GenericArgument::Type(ty) => ty.parse_type_var(scope),
-                    _ => Err(Error::new(arg.span(), "unsupported generic variant")),
-                })
-                .try_collect::<_, Vec<_>, _>()?
-                .transpose_inplace()
-                .into_iter()
-                .map(|args| PathArgumentsVar::AngleBracketed(args))
-                .collect(),
-            PathArguments::Parenthesized(args) => args
-                .inputs
-                .iter()
-                .map(|ty| ty.parse_type_var(scope))
-                .try_collect::<_, Vec<_>, _>()?
-                .transpose_inplace()
-                .into_iter()
-                .map(|inputs| PathArgumentsVar::Parenthesized(inputs))
-                .collect(),
+        let arguments = match arguments {
+            PathArguments::None => PathArgumentsVar::None,
+            PathArguments::AngleBracketed(args) => {
+                let args = args
+                    .args
+                    .iter()
+                    .map(|arg| match arg {
+                        GenericArgument::Type(ty) => ty.parse_type_var(scope),
+                        _ => Err(Error::new(arg.span(), "unsupported generic variant")),
+                    })
+                    .try_collect()?;
+                PathArgumentsVar::AngleBracketed(args)
+            }
+            PathArguments::Parenthesized(args) => {
+                let inputs = args
+                    .inputs
+                    .iter()
+                    .map(|ty| ty.parse_type_var(scope))
+                    .try_collect()?;
+                PathArgumentsVar::Parenthesized(inputs)
+            }
         };
-        let vars: Vec<_> = arguments_vec
-            .into_iter()
-            .map(|arguments| SegmentVar {
-                ident: ident.to_owned(),
-                arguments,
-            })
-            .collect();
 
-        Ok(vars)
+        Ok(SegmentVar {
+            ident: ident.to_owned(),
+            arguments,
+        })
     }
 }
 
 pub trait ParseTraitBoundVar {
-    fn parse_trait_bound_var(&self, scope: &Env) -> syn::Result<Vec<TraitBoundVar>>;
+    fn parse_trait_bound_var(&self, scope: &Env) -> syn::Result<TraitBoundVar>;
 }
 
 impl ParseTraitBoundVar for TraitBound {
-    fn parse_trait_bound_var(&self, scope: &Env) -> syn::Result<Vec<TraitBoundVar>> {
+    fn parse_trait_bound_var(&self, scope: &Env) -> syn::Result<TraitBoundVar> {
         let TraitBound { modifier, path, .. } = self;
-        let vars: Vec<_> = path
-            .parse_path_var(scope)?
-            .into_iter()
-            .map(|path| TraitBoundVar {
-                modifier: modifier.into(),
-                path,
-            })
-            .collect();
-        Ok(vars)
+        let path = path.parse_path_var(scope)?;
+        Ok(TraitBoundVar {
+            modifier: modifier.into(),
+            path,
+        })
     }
 }
 
 pub trait ParsePredicateTypeVar {
-    fn parse_predicate_type_var(&self, scope: &Env) -> syn::Result<Vec<PredicateTypeVar>>;
+    fn parse_predicate_type_var(&self, scope: &Env) -> syn::Result<PredicateTypeVar>;
 }
 
 impl ParsePredicateTypeVar for PredicateType {
-    fn parse_predicate_type_var(&self, scope: &Env) -> syn::Result<Vec<PredicateTypeVar>> {
+    fn parse_predicate_type_var(&self, scope: &Env) -> syn::Result<PredicateTypeVar> {
         let PredicateType {
             lifetimes,
             bounded_ty,
@@ -466,48 +404,34 @@ impl ParsePredicateTypeVar for PredicateType {
             return Err(Error::new(life.span(), "bounded lifetime is not supported"));
         }
 
-        let bounded_tys = bounded_ty.parse_type_var(scope)?;
-        let bounds_vec: Vec<_> = bounds
+        let bounded_ty = bounded_ty.parse_type_var(scope)?;
+        let bounds: Vec<_> = bounds
             .iter()
             .map(|bound| match bound {
                 TypeParamBound::Trait(trait_) => {
-                    let bounds: Vec<_> = trait_
-                        .parse_trait_bound_var(scope)?
-                        .into_iter()
-                        .map(|trait_bounds| TypeParamBoundVar::Trait(trait_bounds))
-                        .collect();
-                    Ok(bounds)
+                    let bounds = trait_.parse_trait_bound_var(scope)?;
+                    Ok(TypeParamBoundVar::Trait(bounds))
                 }
                 TypeParamBound::Lifetime(lifetime) => {
                     Err(Error::new(lifetime.span(), "lifetime is not supported"))
                 }
             })
-            .try_collect::<_, Vec<_>, _>()?
-            .transpose_inplace();
+            .try_collect()?;
 
-        let vars: Vec<_> = bounded_tys
-            .into_iter()
-            .zip_eq(bounds_vec)
-            .map(|(bounded_ty, bounds)| PredicateTypeVar { bounded_ty, bounds })
-            .collect();
-        Ok(vars)
+        Ok(PredicateTypeVar { bounded_ty, bounds })
     }
 }
 
 pub trait ParseWherePredicateVar {
-    fn parse_where_predicate_var(&self, scope: &Env) -> syn::Result<Vec<WherePredicateVar>>;
+    fn parse_where_predicate_var(&self, scope: &Env) -> syn::Result<WherePredicateVar>;
 }
 
 impl ParseWherePredicateVar for WherePredicate {
-    fn parse_where_predicate_var(&self, scope: &Env) -> syn::Result<Vec<WherePredicateVar>> {
+    fn parse_where_predicate_var(&self, scope: &Env) -> syn::Result<WherePredicateVar> {
         match self {
             WherePredicate::Type(ty) => {
-                let predicates = ty.parse_predicate_type_var(scope)?;
-                let vars: Vec<_> = predicates
-                    .into_iter()
-                    .map(|predicate| WherePredicateVar::Type(predicate))
-                    .collect();
-                Ok(vars)
+                let predicate = ty.parse_predicate_type_var(scope)?;
+                Ok(WherePredicateVar::Type(predicate))
             }
             WherePredicate::Lifetime(lifetime) => {
                 Err(Error::new(lifetime.span(), "lifetime is not supported"))
@@ -520,25 +444,19 @@ impl ParseWherePredicateVar for WherePredicate {
 }
 
 impl ParseWherePredicateVar for GenericParam {
-    fn parse_where_predicate_var(&self, scope: &Env) -> syn::Result<Vec<WherePredicateVar>> {
+    fn parse_where_predicate_var(&self, scope: &Env) -> syn::Result<WherePredicateVar> {
         match self {
             GenericParam::Type(TypeParam { ident, bounds, .. }) => {
-                let bounded_ty_vec = ident.parse_type_var(scope)?;
-                let bounds_vec = bounds
+                let bounded_ty = ident.parse_type_var(scope)?;
+                let bounds = bounds
                     .iter()
                     .map(|bound| bound.parse_type_param_bound_var(scope))
-                    .try_collect::<_, Vec<_>, _>()?
-                    .transpose_inplace();
+                    .try_collect()?;
 
-                let vars: Vec<_> = bounded_ty_vec
-                    .into_iter()
-                    .zip_eq(bounds_vec)
-                    .map(|(bounded_ty, bounds)| {
-                        WherePredicateVar::Type(PredicateTypeVar { bounded_ty, bounds })
-                    })
-                    .collect();
-
-                Ok(vars)
+                Ok(WherePredicateVar::Type(PredicateTypeVar {
+                    bounded_ty,
+                    bounds,
+                }))
             }
             GenericParam::Lifetime(_) => {
                 return Err(Error::new(self.span(), "lifetime is not supported"));
@@ -551,35 +469,27 @@ impl ParseWherePredicateVar for GenericParam {
 }
 
 impl ParseWherePredicateVar for PatType {
-    fn parse_where_predicate_var(&self, scope: &Env) -> syn::Result<Vec<WherePredicateVar>> {
+    fn parse_where_predicate_var(&self, scope: &Env) -> syn::Result<WherePredicateVar> {
         let PatType { pat, ty, .. } = self;
-        let bounded_ty_vec = pat.parse_type_var(scope)?;
-        let bounds_vec = ty.parse_type_param_bounds_var(scope)?;
-        let vars: Vec<_> = bounded_ty_vec
-            .into_iter()
-            .zip_eq(bounds_vec)
-            .map(|(bounded_ty, bounds)| {
-                WherePredicateVar::Type(PredicateTypeVar { bounded_ty, bounds })
-            })
-            .collect();
-        Ok(vars)
+        let bounded_ty = pat.parse_type_var(scope)?;
+        let bounds = ty.parse_type_param_bounds_var(scope)?;
+        Ok(WherePredicateVar::Type(PredicateTypeVar {
+            bounded_ty,
+            bounds,
+        }))
     }
 }
 
 pub trait ParseTypeParamBoundVar {
-    fn parse_type_param_bound_var(&self, scope: &Env) -> syn::Result<Vec<TypeParamBoundVar>>;
+    fn parse_type_param_bound_var(&self, scope: &Env) -> syn::Result<TypeParamBoundVar>;
 }
 
 impl ParseTypeParamBoundVar for TypeParamBound {
-    fn parse_type_param_bound_var(&self, scope: &Env) -> syn::Result<Vec<TypeParamBoundVar>> {
+    fn parse_type_param_bound_var(&self, scope: &Env) -> syn::Result<TypeParamBoundVar> {
         match self {
             TypeParamBound::Trait(bound) => {
                 let bounds = bound.parse_trait_bound_var(scope)?;
-                let vars: Vec<_> = bounds
-                    .into_iter()
-                    .map(|bound| TypeParamBoundVar::Trait(bound))
-                    .collect();
-                Ok(vars)
+                Ok(TypeParamBoundVar::Trait(bounds))
             }
 
             TypeParamBound::Lifetime(_) => {
@@ -590,27 +500,21 @@ impl ParseTypeParamBoundVar for TypeParamBound {
 }
 
 pub trait ParseTypeParamBoundsVar {
-    fn parse_type_param_bounds_var(&self, scope: &Env) -> syn::Result<Vec<Vec<TypeParamBoundVar>>>;
+    fn parse_type_param_bounds_var(&self, scope: &Env) -> syn::Result<Vec<TypeParamBoundVar>>;
 }
 
 impl ParseTypeParamBoundsVar for Type {
-    fn parse_type_param_bounds_var(&self, scope: &Env) -> syn::Result<Vec<Vec<TypeParamBoundVar>>> {
+    fn parse_type_param_bounds_var(&self, scope: &Env) -> syn::Result<Vec<TypeParamBoundVar>> {
         match self {
-            Type::Infer(_) => Ok(vec![vec![]; scope.num_branches()]),
+            Type::Infer(_) => Ok(vec![]),
             Type::Path(TypePath {
                 qself: None, path, ..
             }) => {
-                let paths = path.parse_path_var(scope)?;
-                let vars: Vec<_> = paths
-                    .into_iter()
-                    .map(|path| {
-                        vec![TypeParamBoundVar::Trait(TraitBoundVar {
-                            modifier: TraitBoundModifierVar::None,
-                            path,
-                        })]
-                    })
-                    .collect();
-                Ok(vars)
+                let path = path.parse_path_var(scope)?;
+                Ok(vec![TypeParamBoundVar::Trait(TraitBoundVar {
+                    modifier: TraitBoundModifierVar::None,
+                    path,
+                })])
             }
             Type::TraitObject(TypeTraitObject {
                 bounds, dyn_token, ..
@@ -621,8 +525,7 @@ impl ParseTypeParamBoundsVar for Type {
                 let bounds = bounds
                     .iter()
                     .map(|bound| bound.parse_type_param_bound_var(scope))
-                    .try_collect::<_, Vec<_>, _>()?
-                    .transpose_inplace();
+                    .try_collect()?;
                 Ok(bounds)
             }
             _ => Err(Error::new(self.span(), "not trait bounds")),

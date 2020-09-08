@@ -1,6 +1,6 @@
 use super::*;
 
-pub fn translate_assign_expr(assign: &ExprAssign, scope: &mut Env) -> syn::Result<usize>
+pub fn translate_assign_expr(assign: &ExprAssign, scope: &mut Env) -> syn::Result<TypeVar>
 where
 {
     let ExprAssign { left, right, .. } = assign;
@@ -15,22 +15,13 @@ where
     };
 
     // parse rhs
-    let value_id = translate_expr(right, scope)?;
-    let values: Vec<_> = scope
-        .pop(value_id)
-        .into_iter()
-        .map(|var| var.into_type().unwrap())
-        .collect();
+    let value = translate_expr(right, scope)?;
 
     // update state
-    scope.assign_quantifier(ident, values)?;
+    scope.assign_quantifier(ident, value)?;
 
     // expand return value
-    let num_branches = scope.num_branches();
-    let output: Vec<TypeVar> = (0..num_branches)
-        .map(|_| syn::parse2(quote! { () }).unwrap())
-        .collect();
-    let output_id = scope.push(output);
+    let output: TypeVar = syn::parse2(quote! { () }).unwrap();
 
-    Ok(output_id)
+    Ok(output)
 }

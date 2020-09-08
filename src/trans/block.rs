@@ -1,6 +1,6 @@
 use super::*;
 
-pub fn translate_block(block: &Block, scope: &mut Env) -> syn::Result<usize>
+pub fn translate_block(block: &Block, scope: &mut Env) -> syn::Result<TypeVar>
 where
 {
     let mut output_ty = None;
@@ -46,29 +46,17 @@ where
                     };
 
                     // compute output type from expression
-                    let value_id = translate_expr(expr, scope)?;
-                    let values: Vec<_> = scope
-                        .pop(value_id)
-                        .into_iter()
-                        .map(|var| var.into_type().unwrap())
-                        .collect();
+                    let value = translate_expr(expr, scope)?;
 
                     // add new bounded quantifier
-                    scope.insert_bounded_quantifier(ident.to_owned(), is_mut, values.clone());
+                    scope.insert_bounded_quantifier(ident.to_owned(), is_mut, value.clone());
 
                     // insert trait bounds
                     if let Some(ty) = ty_opt {
-                        let trait_bounds = ty.parse_type_param_bounds_var(scope)?;
-                        let predicates: Vec<_> = values
-                            .into_iter()
-                            .zip_eq(trait_bounds)
-                            .map(|(ty, bounds)| {
-                                WherePredicateVar::Type(PredicateTypeVar {
-                                    bounded_ty: ty,
-                                    bounds,
-                                })
-                            })
-                            .collect();
+                        let bounded_ty = ty.parse_type_var(scope)?;
+                        let bounds = ty.parse_type_param_bounds_var(scope)?;
+                        let predicates =
+                            WherePredicateVar::Type(PredicateTypeVar { bounded_ty, bounds });
                         scope.insert_predicate(predicates);
                     }
 
@@ -90,12 +78,5 @@ where
         Ok(())
     })?;
 
-    Ok(output_ty.unwrap_or_else(|| {
-        let num_branches = scope.num_branches();
-        let output: Vec<TypeVar> = (0..num_branches)
-            .map(|_| syn::parse2(quote! { () }).unwrap())
-            .collect();
-        let id = scope.push(output);
-        id
-    }))
+    Ok(output_ty.unwrap_or_else(|| syn::parse2(quote! { () }).unwrap()))
 }

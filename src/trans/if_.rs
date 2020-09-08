@@ -12,51 +12,44 @@ where
 
     // generate predicate tokens
     let cond_tokens = {
-        let cond_ty_id = translate_expr(&*cond, scope)?;
-        let cond_ty = scope.pop(cond_ty_id);
+        let cond_ty = translate_expr(&*cond, scope)?;
 
-        let (cond_tokens, predicates): (Vec<_>, Vec<_>) = cond_ty
-            .into_iter()
-            .map(|cond_ty| {
-                let cond_ty = cond_ty.into_type().unwrap();
-                let eq_trait: PathVar =
-                    syn::parse2(quote! { typenum::type_operators::IsEqual<typenum::B1> }).unwrap();
-                let path = {
-                    let mut path = eq_trait.clone();
-                    path.segments.push(SegmentVar {
-                        ident: format_ident!("Output"),
-                        arguments: PathArgumentsVar::None,
-                    });
-                    path
-                };
-                let output = TypeVar::Path(TypePathVar {
-                    qself: Some(QSelfVar {
-                        ty: Box::new(cond_ty.clone()),
-                        position: eq_trait.segments.len(),
-                    }),
-                    path,
+        let (cond_tokens, apply_predicates, output_predicates) = {
+            let eq_trait: PathVar =
+                syn::parse2(quote! { typenum::type_operators::IsEqual<typenum::B1> }).unwrap();
+            let path = {
+                let mut path = eq_trait.clone();
+                path.segments.push(SegmentVar {
+                    ident: format_ident!("Output"),
+                    arguments: PathArgumentsVar::None,
                 });
-                let apply_predicate = WherePredicateVar::Type(PredicateTypeVar {
-                    bounded_ty: cond_ty.clone(),
+                path
+            };
+            let output = TypeVar::Path(TypePathVar {
+                qself: Some(QSelfVar {
+                    ty: Box::new(cond_ty.clone()),
+                    position: eq_trait.segments.len(),
+                }),
+                path,
+            });
+            let apply_predicate = WherePredicateVar::Type(PredicateTypeVar {
+                bounded_ty: cond_ty.clone(),
+                bounds: vec![TypeParamBoundVar::Trait(TraitBoundVar {
+                    modifier: TraitBoundModifierVar::None,
+                    path: eq_trait,
+                })],
+            });
+            let output_predicate = {
+                WherePredicateVar::Type(PredicateTypeVar {
+                    bounded_ty: output.clone(),
                     bounds: vec![TypeParamBoundVar::Trait(TraitBoundVar {
                         modifier: TraitBoundModifierVar::None,
-                        path: eq_trait,
+                        path: syn::parse2(quote! { typenum::marker_traits::Bit }).unwrap(),
                     })],
-                });
-                let output_predicate = {
-                    WherePredicateVar::Type(PredicateTypeVar {
-                        bounded_ty: output.clone(),
-                        bounds: vec![TypeParamBoundVar::Trait(TraitBoundVar {
-                            modifier: TraitBoundModifierVar::None,
-                            path: syn::parse2(quote! { typenum::marker_traits::Bit }).unwrap(),
-                        })],
-                    })
-                };
-                (output, (apply_predicate, output_predicate))
-            })
-            .unzip();
-        let (apply_predicates, output_predicates): (Vec<_>, Vec<_>) =
-            predicates.into_iter().unzip();
+                })
+            };
+            (output, apply_predicate, output_predicate)
+        };
 
         scope.insert_predicate(apply_predicates);
         scope.insert_predicate(output_predicates);
@@ -64,7 +57,6 @@ where
     };
 
     // evaluate each branch
-    let mut brancher = scope.into_brancher(cond_tokens);
 
     // generate impl items
     let b1: TypeVar = syn::parse2(quote! { typenum::B1 }).unwrap();

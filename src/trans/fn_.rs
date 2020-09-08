@@ -36,9 +36,8 @@ pub fn translate_fn(
     }
 
     // create root scope
-    let mut scope = Env::new();
+    let mut scope = Env::new(fn_name.clone());
 
-    dbg!();
     // check if "self" is present in the input arguments and is consistent with impl block
     let self_ty_tokens = match (self_ty, inputs.first()) {
         (
@@ -70,18 +69,15 @@ pub fn translate_fn(
     };
 
     // translate function generics to initial quantifiers
-    dbg!();
     let (input_type_params, input_lifetimes, input_const_params) = {
         // create initial quantifiers
-        dbg!();
         for param in generics.params.iter() {
             if let GenericParam::Type(TypeParam { ident, bounds, .. }) = param {
-                scope.insert_free_quantifier(ident.to_owned())?;
+                scope.insert_free_quantifier(ident.to_owned());
             }
         }
 
         // insert trait bounds
-        dbg!();
         for param in generics.params.iter() {
             let predicate = param.parse_where_predicate_var(&scope)?;
             scope.insert_predicate(predicate);
@@ -94,7 +90,6 @@ pub fn translate_fn(
             }
         }
 
-        dbg!();
         let input_type_params: Vec<_> = generics
             .params
             .iter()
@@ -137,7 +132,6 @@ pub fn translate_fn(
     };
 
     // translate function arguments into types and trait bounds
-    dbg!();
     let fn_args = {
         // insert trait bounds
         for arg in inputs.iter() {
@@ -169,10 +163,7 @@ pub fn translate_fn(
     };
 
     // translate block
-    dbg!();
-    let outputs_id = translate_block(&block, &mut scope)?;
-    dbg!();
-    let outputs_per_branch = scope.pop(outputs_id);
+    let output = translate_block(&block, &mut scope)?;
 
     // insert trait bound for output type
     // dbg!();
@@ -186,7 +177,6 @@ pub fn translate_fn(
     // }
 
     // generate trait names
-    dbg!();
     let pub_type_name = format_ident!("{}Op", fn_name);
     let pub_trait_name = format_ident!("{}", fn_name);
     let priv_trait_name = format_ident!("{}{}", IDENT_PREFIX, fn_name);

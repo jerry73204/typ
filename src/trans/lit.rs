@@ -1,6 +1,6 @@
 use super::*;
 
-pub fn translate_lit_expr(expr: &ExprLit, scope: &mut Env) -> syn::Result<usize> {
+pub fn translate_lit_expr(expr: &ExprLit, scope: &mut Env) -> syn::Result<TypeVar> {
     let ExprLit { lit, .. } = expr;
 
     // parse literal
@@ -33,11 +33,7 @@ pub fn translate_lit_expr(expr: &ExprLit, scope: &mut Env) -> syn::Result<usize>
     };
     let lit_ty: TypeVar = syn::parse2(lit_tokens)?;
 
-    let num_branches = scope.num_branches();
-    let output: Vec<_> = (0..num_branches).map(|_| lit_ty.clone()).collect();
-    let output_id = scope.push(output);
-
-    Ok(output_id)
+    Ok(lit_ty)
 }
 
 fn int_to_typenum(value: u128) -> TokenStream {
