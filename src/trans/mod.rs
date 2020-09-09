@@ -14,6 +14,7 @@ mod unary;
 pub use crate::{
     common::*,
     env::Env,
+    parse::{GenericsAttr, SimpleTypeParam},
     utils::VecTranspose,
     var::{
         ParsePathVar, ParsePureType, ParsePureWherePredicate, ParseTypeParamBoundsVar,

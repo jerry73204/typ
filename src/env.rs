@@ -9,7 +9,7 @@ pub use env::*;
 mod env {
     use super::*;
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug)]
     pub struct Env {
         self_name: Rc<Ident>,
         variables: SharedCell<IndexSet<Shared<Variable>>>,
@@ -37,10 +37,23 @@ mod env {
                 .find_map(|variables| variables.get(ident).cloned())
         }
 
-        pub fn branch(&self, self_name: Ident) -> Self {
-            let mut env = self.clone();
-            env.self_name = Rc::new(self_name);
-            env
+        pub fn branch(&self) -> Self {
+            let self_name = self.self_name.clone();
+            let variables = self.variables.clone();
+            let type_predicates = self.type_predicates.clone();
+            let mut namespace = self.namespace.clone();
+            let trait_name_prefixes = self.trait_name_prefixes.clone();
+
+            // add one extra scope
+            namespace.push(HashMap::new());
+
+            Self {
+                self_name,
+                variables,
+                type_predicates,
+                namespace,
+                trait_name_prefixes,
+            }
         }
 
         pub fn insert_free_quantifier(&mut self, ident: Ident) -> Shared<Variable> {

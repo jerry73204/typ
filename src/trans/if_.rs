@@ -75,13 +75,13 @@ where
         .collect();
 
     // generate traits
-    let free_quantifier_substitution: IndexMap<_, _> = free_quantifiers
+    let substitution: IndexMap<_, _> = free_quantifiers
         .iter()
         .cloned()
         .enumerate()
         .map(|(index, var)| (var, format_ident!("{}GENERIC_{}", IDENT_PREFIX, index)))
         .collect();
-    let generics: Vec<_> = free_quantifier_substitution.values().collect();
+    let generics: Vec<_> = substitution.values().collect();
     let cond_generic = format_ident!("{}CONDITION_GENERIC", IDENT_PREFIX);
 
     let if_trait_item: ItemTrait = {
@@ -105,21 +105,16 @@ where
 
     // generate impl items
     let impls = {
-        // clone first to avoid unnecessary trait bounds
-        let saved_env = env.clone();
-
         let impls: Vec<ItemImpl> = match else_branch {
             Some((_else, else_expr)) => {
                 let if_impls: Vec<_> = {
-                    let mut branched_env = saved_env.clone();
+                    let mut branched_env = env.branch();
                     let then_output = translate_block(then_branch, &mut branched_env, items)?
-                        .substitute(&branched_env, &free_quantifier_substitution);
+                        .substitute(&branched_env, &substitution);
                     let predicates: Vec<_> = branched_env
                         .predicates()
                         .into_iter()
-                        .map(|predicate| {
-                            predicate.substitute(&branched_env, &free_quantifier_substitution)
-                        })
+                        .map(|predicate| predicate.substitute(&branched_env, &substitution))
                         .collect();
 
                     let body_impl: ItemImpl = {
@@ -145,7 +140,7 @@ where
                                 .value
                                 .as_ref()
                                 .unwrap()
-                                .substitute(&branched_env, &free_quantifier_substitution);
+                                .substitute(&branched_env, &substitution);
                             let trait_ = quote! { #trait_name<#(#generics,)* typenum::B1> };
                             let impl_ = quote! {
                                 impl< #(#generics),* > #trait_ for ()
@@ -163,15 +158,13 @@ where
                 };
 
                 let else_impls: Vec<_> = {
-                    let mut branched_env = saved_env.clone();
+                    let mut branched_env = env.branch();
                     let else_output = translate_expr(&**else_expr, &mut branched_env, items)?
-                        .substitute(&branched_env, &free_quantifier_substitution);
+                        .substitute(&branched_env, &substitution);
                     let predicates: Vec<_> = branched_env
                         .predicates()
                         .into_iter()
-                        .map(|predicate| {
-                            predicate.substitute(&branched_env, &free_quantifier_substitution)
-                        })
+                        .map(|predicate| predicate.substitute(&branched_env, &substitution))
                         .collect();
 
                     let body_impl: ItemImpl = {
@@ -197,7 +190,7 @@ where
                                 .value
                                 .as_ref()
                                 .unwrap()
-                                .substitute(&env, &free_quantifier_substitution);
+                                .substitute(&env, &substitution);
                             let trait_ = quote! { #trait_name<#(#generics,)* typenum::B0> };
                             let impl_ = quote! {
                                 impl< #(#generics),* > #trait_ for ()
@@ -218,14 +211,12 @@ where
             }
             None => {
                 let if_impls: Vec<_> = {
-                    let mut branched_env = saved_env.clone();
+                    let mut branched_env = env.clone();
                     translate_block(then_branch, &mut branched_env, items)?;
                     let predicates: Vec<_> = branched_env
                         .predicates()
                         .into_iter()
-                        .map(|predicate| {
-                            predicate.substitute(&branched_env, &free_quantifier_substitution)
-                        })
+                        .map(|predicate| predicate.substitute(&branched_env, &substitution))
                         .collect();
 
                     let body_impl: ItemImpl = {
@@ -242,7 +233,7 @@ where
                     };
 
                     // insert trait bound
-                    let side_effect_impls: Vec<ItemImpl> = mutable_quantifiers
+                    let assign_impls: Vec<ItemImpl> = mutable_quantifiers
                         .keys()
                         .map(|ident| {
                             let trait_name = &assign_trait_names[ident];
@@ -252,7 +243,7 @@ where
                                 .value
                                 .as_ref()
                                 .unwrap()
-                                .substitute(&branched_env, &free_quantifier_substitution);
+                                .substitute(&branched_env, &substitution);
                             let trait_ = quote! { #trait_name<#(#generics,)* typenum::B1> };
                             let impl_ = quote! {
                                 impl< #(#generics),* > #trait_ for ()
@@ -266,16 +257,14 @@ where
                         })
                         .try_collect()?;
 
-                    iter::once(body_impl).chain(side_effect_impls).collect()
+                    iter::once(body_impl).chain(assign_impls).collect()
                 };
 
                 let else_impls: Vec<_> = {
-                    let predicates: Vec<_> = saved_env
+                    let predicates: Vec<_> = env
                         .predicates()
                         .into_iter()
-                        .map(|predicate| {
-                            predicate.substitute(&saved_env, &free_quantifier_substitution)
-                        })
+                        .map(|predicate| predicate.substitute(env, &substitution))
                         .collect();
 
                     let body_impl: ItemImpl = {
@@ -295,13 +284,13 @@ where
                         .keys()
                         .map(|ident| {
                             let trait_name = &assign_trait_names[ident];
-                            let value = &saved_env
+                            let value = &env
                                 .get_variable(ident)
                                 .expect("please report bug: the variable is missing")
                                 .value
                                 .as_ref()
                                 .unwrap()
-                                .substitute(&saved_env, &free_quantifier_substitution);
+                                .substitute(&env, &substitution);
                             let trait_ = quote! { #trait_name<#(#generics,)* typenum::B0> };
                             let impl_ = quote! {
                                 impl< #(#generics),* > #trait_ for ()
@@ -328,20 +317,28 @@ where
     // assign affected variables
     for ident in mutable_quantifiers.keys() {
         let trait_name = &assign_trait_names[ident];
-        let trait_ = quote! { #trait_name < #(#generics,)* #cond_generic > };
-        let value: TypeVar = syn::parse2(quote! { < () as #trait_ >::Output })?;
-        let predicate: WherePredicateVar = syn::parse2(quote! { (): #trait_ })?;
-        env.assign_quantifier(ident, value)?;
-        env.insert_predicate(predicate);
+        let trait_ = PathVar {
+            segments: vec![SegmentVar {
+                ident: trait_name.to_owned(),
+                arguments: PathArgumentsVar::AngleBracketed(todo!()),
+            }],
+        };
+        // let trait_ = quote! { #trait_name < #(#generics,)* #cond_generic > };
+        // let value: TypeVar = syn::parse2(quote! { < () as #trait_ >::Output })?;
+        // let predicate: WherePredicateVar = syn::parse2(quote! { (): #trait_ })?;
+        // env.assign_quantifier(ident, value)?;
+        // env.insert_predicate(predicate);
+        todo!();
     }
 
     // construct output
     let output = {
-        let trait_ = quote! { #if_trait_name < #(#generics,)* #cond_generic > };
-        let output: TypeVar = syn::parse2(quote! { < () as #trait_ >::Output })?;
-        let predicate: WherePredicateVar = syn::parse2(quote! { (): #trait_ })?;
-        env.insert_predicate(predicate);
-        output
+        // let trait_ = quote! { #if_trait_name < #(#generics,)* #cond_generic > };
+        // let output: TypeVar = syn::parse2(quote! { < () as #trait_ >::Output })?;
+        // let predicate: WherePredicateVar = syn::parse2(quote! { (): #trait_ })?;
+        // env.insert_predicate(predicate);
+        // output
+        todo!();
     };
 
     // add items to env

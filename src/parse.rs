@@ -1,4 +1,11 @@
-use crate::common::*;
+use crate::{
+    common::*,
+    env::Env,
+    var::{
+        ParseTypeParamBoundVar, ParseTypeVar, ParseWherePredicateVar, PredicateTypeVar,
+        WherePredicateVar,
+    },
+};
 
 #[derive(Debug, Clone)]
 pub struct ItemVec(pub Vec<Item>);
@@ -35,6 +42,23 @@ impl Parse for SimpleTypeParam {
         };
 
         Ok(param)
+    }
+}
+
+impl ParseWherePredicateVar for SimpleTypeParam {
+    fn parse_where_predicate_var(&self, scope: &Env) -> syn::Result<WherePredicateVar> {
+        let SimpleTypeParam { ident, bounds } = self;
+
+        let bounded_ty = ident.parse_type_var(scope)?;
+        let bounds = bounds
+            .iter()
+            .map(|bound| bound.parse_type_param_bound_var(scope))
+            .try_collect()?;
+
+        Ok(WherePredicateVar::Type(PredicateTypeVar {
+            bounded_ty,
+            bounds,
+        }))
     }
 }
 

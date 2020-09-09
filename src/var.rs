@@ -499,6 +499,13 @@ impl ParseTypeParamBoundVar for TypeParamBound {
     }
 }
 
+impl ParseTypeParamBoundVar for TraitBound {
+    fn parse_type_param_bound_var(&self, scope: &Env) -> syn::Result<TypeParamBoundVar> {
+        let bounds = self.parse_trait_bound_var(scope)?;
+        Ok(TypeParamBoundVar::Trait(bounds))
+    }
+}
+
 pub trait ParseTypeParamBoundsVar {
     fn parse_type_param_bounds_var(&self, scope: &Env) -> syn::Result<Vec<TypeParamBoundVar>>;
 }
