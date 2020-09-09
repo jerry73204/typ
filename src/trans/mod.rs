@@ -50,6 +50,7 @@ pub fn translate_items(items: &[Item]) -> syn::Result<TokenStream> {
                 }
                 Item::Struct(struct_) => translate_struct(&struct_)?,
                 Item::Impl(impl_) => translate_impl(&impl_)?,
+                Item::Use(use_) => translate_use(&use_),
                 _ => {
                     return Err(Error::new(item.span(), "unsupported item kind"));
                 }
@@ -63,4 +64,9 @@ pub fn translate_items(items: &[Item]) -> syn::Result<TokenStream> {
     };
 
     Ok(expanded)
+}
+
+fn translate_use(use_: &ItemUse) -> TokenStream {
+    // return as it is
+    quote! { #use_ }
 }

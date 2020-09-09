@@ -30,9 +30,9 @@ pub use syn::{
     ExprBlock, ExprCall, ExprIf, ExprIndex, ExprLet, ExprLit, ExprMatch, ExprPath, ExprReturn,
     ExprTuple, ExprUnary, Field, Fields, FnArg, GenericArgument, GenericParam, Ident, ImplItem,
     ImplItemMethod, ImplItemType, Item, ItemEnum, ItemFn, ItemImpl, ItemMod, ItemStruct, ItemTrait,
-    LifetimeDef, Lit, LitBool, LitInt, Local, Pat, PatIdent, PatPath, PatTuple, PatType, Path,
-    PathArguments, PathSegment, PredicateType, QSelf, Receiver, ReturnType, Signature, Stmt, Token,
-    TraitBound, TraitBoundModifier, Type, TypeParam, TypeParamBound, TypeParen, TypePath,
+    ItemUse, LifetimeDef, Lit, LitBool, LitInt, Local, Pat, PatIdent, PatPath, PatTuple, PatType,
+    Path, PathArguments, PathSegment, PredicateType, QSelf, Receiver, ReturnType, Signature, Stmt,
+    Token, TraitBound, TraitBoundModifier, Type, TypeParam, TypeParamBound, TypeParen, TypePath,
     TypeTraitObject, TypeTuple, UnOp, Variant, Visibility, WherePredicate,
 };
 
