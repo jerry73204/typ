@@ -15,15 +15,59 @@ where
         Expr::Assign(assign) => translate_assign_expr(&assign, scope, items),
         Expr::Lit(lit) => translate_lit_expr(&lit, scope, items),
         Expr::Unary(unary) => translate_unary_expr(&unary, scope, items),
+        Expr::Index(index) => translate_index_expr(&index, scope, items),
         _ => Err(Error::new(expr.span(), "unsupported expression")),
     };
     ret
 }
 
+pub fn translate_index_expr(
+    expr: &ExprIndex,
+    env: &mut Env,
+    items: &mut Vec<Item>,
+) -> syn::Result<TypeVar>
+where
+{
+    let ExprIndex { expr, index, .. } = expr;
+    let operand = translate_expr(expr, env, items)?;
+    let index = translate_expr(index, env, items)?;
+
+    let trait_ = {
+        let mut path: PathVar = syn::parse2(quote! { core::ops::Index }).unwrap();
+        path.segments.last_mut().unwrap().arguments = PathArgumentsVar::AngleBracketed(vec![index]);
+        path
+    };
+    let path = {
+        let mut path = trait_.clone();
+        path.segments.push(SegmentVar {
+            ident: format_ident!("Output"),
+            arguments: PathArgumentsVar::None,
+        });
+        path
+    };
+    let output = TypeVar::Path(TypePathVar {
+        qself: Some(QSelfVar {
+            ty: Box::new(operand.clone()),
+            position: trait_.segments.len(),
+        }),
+        path,
+    });
+    let predicate = WherePredicateVar::Type(PredicateTypeVar {
+        bounded_ty: operand,
+        bounds: vec![TypeParamBoundVar::Trait(TraitBoundVar {
+            modifier: TraitBoundModifierVar::None,
+            path: trait_,
+        })],
+    });
+
+    env.insert_predicate(predicate);
+    Ok(output)
+}
+
 pub fn translate_path_expr(
     expr: &ExprPath,
     scope: &mut Env,
-    items: &mut Vec<Item>,
+    _items: &mut Vec<Item>,
 ) -> syn::Result<TypeVar>
 where
 {
