@@ -1,50 +1,66 @@
 use super::*;
 
-pub fn translate_expr(expr: &Expr, scope: &mut Env) -> syn::Result<TypeVar>
+pub fn translate_expr(expr: &Expr, scope: &mut Env, items: &mut Vec<Item>) -> syn::Result<TypeVar>
 where
 {
     let ret = match expr {
-        Expr::Match(match_) => translate_match_expr(match_, scope),
-        Expr::Path(path) => translate_path_expr(path, scope),
-        Expr::Tuple(tuple) => translate_tuple_expr(tuple, scope),
-        Expr::Binary(binop) => translate_binary_expr(binop, scope),
-        Expr::If(if_) => translate_if_expr(if_, scope),
-        Expr::Block(block) => translate_block_expr(block, scope),
-        Expr::Call(call) => translate_call_expr(call, scope),
-        Expr::Paren(paren) => translate_expr(&paren.expr, scope),
-        Expr::Assign(assign) => translate_assign_expr(&assign, scope),
-        Expr::Lit(lit) => translate_lit_expr(&lit, scope),
-        Expr::Unary(unary) => translate_unary_expr(&unary, scope),
+        Expr::Match(match_) => translate_match_expr(match_, scope, items),
+        Expr::Path(path) => translate_path_expr(path, scope, items),
+        Expr::Tuple(tuple) => translate_tuple_expr(tuple, scope, items),
+        Expr::Binary(binop) => translate_binary_expr(binop, scope, items),
+        Expr::If(if_) => translate_if_expr(if_, scope, items),
+        Expr::Block(block) => translate_block_expr(block, scope, items),
+        Expr::Call(call) => translate_call_expr(call, scope, items),
+        Expr::Paren(paren) => translate_expr(&paren.expr, scope, items),
+        Expr::Assign(assign) => translate_assign_expr(&assign, scope, items),
+        Expr::Lit(lit) => translate_lit_expr(&lit, scope, items),
+        Expr::Unary(unary) => translate_unary_expr(&unary, scope, items),
         _ => Err(Error::new(expr.span(), "unsupported expression")),
     };
     ret
 }
 
-pub fn translate_path_expr(expr: &ExprPath, scope: &mut Env) -> syn::Result<TypeVar>
+pub fn translate_path_expr(
+    expr: &ExprPath,
+    scope: &mut Env,
+    items: &mut Vec<Item>,
+) -> syn::Result<TypeVar>
 where
 {
     expr.parse_type_var(scope)
 }
 
-pub fn translate_tuple_expr(tuple: &ExprTuple, scope: &mut Env) -> syn::Result<TypeVar>
+pub fn translate_tuple_expr(
+    tuple: &ExprTuple,
+    scope: &mut Env,
+    items: &mut Vec<Item>,
+) -> syn::Result<TypeVar>
 where
 {
     // translate each element
     let elems: Vec<_> = tuple
         .elems
         .iter()
-        .map(|expr| translate_expr(expr, scope))
+        .map(|expr| translate_expr(expr, scope, items))
         .try_collect()?;
 
     // merge tokens from each element
     Ok(TypeVar::Tuple(TypeTupleVar { elems }))
 }
 
-pub fn translate_block_expr(block: &ExprBlock, scope: &mut Env) -> syn::Result<TypeVar> {
-    translate_block(&block.block, scope)
+pub fn translate_block_expr(
+    block: &ExprBlock,
+    scope: &mut Env,
+    items: &mut Vec<Item>,
+) -> syn::Result<TypeVar> {
+    translate_block(&block.block, scope, items)
 }
 
-pub fn translate_call_expr(call: &ExprCall, scope: &mut Env) -> syn::Result<TypeVar>
+pub fn translate_call_expr(
+    call: &ExprCall,
+    scope: &mut Env,
+    items: &mut Vec<Item>,
+) -> syn::Result<TypeVar>
 where
 {
     let ExprCall { func, args, .. } = call;
@@ -52,7 +68,7 @@ where
     // parse arguments
     let args: Vec<_> = args
         .iter()
-        .map(|arg| translate_expr(arg, scope))
+        .map(|arg| translate_expr(arg, scope, items))
         .try_collect()?;
 
     // parse the function path to a trait path

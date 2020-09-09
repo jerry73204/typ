@@ -1,112 +1,163 @@
 use super::*;
-use crate::parse::{GenericsAttr, SimpleTypeParam};
 
-// trait List {}
-
-// struct Cons<Head, Tail>
-// where
-//     Tail: List,
-// {
-//     head: Head,
-//     tail: Tail,
-// }
-// impl<Head, Tail> List for Cons<Head, Tail> where Tail: List {}
-
-// struct Nil;
-// impl List for Nil {}
-
-// trait Append<T> {
-//     type Output<X>;
-// }
-
-// impl<T> Append<T> for () {
-//     type Output<X> = X;
-// }
-
-pub fn translate_match_expr(match_: &ExprMatch, scope: &mut Env) -> syn::Result<usize>
+pub fn translate_match_expr(
+    match_: &ExprMatch,
+    env: &mut Env,
+    items: &mut Vec<Item>,
+) -> syn::Result<TypeVar>
 where
 {
     let ExprMatch { expr, arms, .. } = match_;
 
     // parse matched expression
-    let cond_id = match &**expr {
-        Expr::Path(path) => translate_path_expr(&path, scope)?,
+    let pattern_tokens = match &**expr {
+        Expr::Path(path) => translate_path_expr(&path, env, items)?,
         _ => return Err(Error::new(expr.span(), "not a type")),
     };
-    let conds: Vec<_> = scope
-        .pop(cond_id)
-        .into_iter()
-        .map(|var| var.into_type().unwrap())
+
+    // save quantifiers (after matched expression)
+    let mutable_quantifiers = env.mutable_quantifiers();
+    let free_quantifiers = env.free_quantifiers();
+
+    // generate trait names
+    let match_trait_name = env
+        .register_trait_name(&format!("{}MatchArm_", IDENT_PREFIX))
+        .expect("the trait name cannot proper prefix of existing trait names");
+
+    let assign_trait_names: HashMap<_, _> = mutable_quantifiers
+        .iter()
+        .map(|ident| {
+            let trait_name = env
+                .register_trait_name(&format!("{}MatchAssign", IDENT_PREFIX))
+                .expect("please report bug: accidentally using a proper prefix");
+            (ident, trait_name)
+        })
         .collect();
 
-    let mut brancher = scope.into_brancher(conds);
+    // generate trait items
+    let cond_generic = format_ident!("{}_CONDITION_GENERIC", IDENT_PREFIX);
+
+    // generate traits
+    let free_quantifier_substitution: IndexMap<_, _> = free_quantifiers
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(index, var)| (var, format_ident!("{}GENERIC_{}", IDENT_PREFIX, index)))
+        .collect();
+    let generics: Vec<_> = free_quantifier_substitution.values().collect();
+
+    let match_trait_item: ItemTrait = syn::parse2(quote! {
+        pub trait #match_trait_name < #(#generics,)* #cond_generic> {
+            type Output;
+        }
+    })?;
+
+    let assign_trait_items: Vec<ItemTrait> = assign_trait_names
+        .values()
+        .map(|trait_name| {
+            syn::parse2(quote! {
+                pub trait #trait_name < #(#generics,)* #cond_generic> {
+                    type Output;
+                }
+            })
+        })
+        .try_collect()?;
 
     // generate impl items
-    let tokens_per_branch: Vec<_> = arms
-        .iter()
-        .map(
-            |Arm {
-                 pat, body, attrs, ..
-             }|
-             -> syn::Result<_> {
-                // parse attributes
-                let generics_attr = {
-                    let mut generics_attr = None;
-                    for attr in attrs.iter() {
-                        let Attribute { style, path, .. } = attr;
+    let impl_items = {
+        let impl_items: Vec<_> = arms
+            .iter()
+            .map(
+                |Arm {
+                     attrs, pat, body, ..
+                 }|
+                 -> syn::Result<_> {
+                    let mut branched_env = env.clone();
 
-                        // sanity check
-                        match (style, path.get_ident()) {
-                            (AttrStyle::Outer, Some(ident)) => match ident.to_string().as_str() {
-                                "generics" => match generics_attr {
-                                    Some(_) => {
-                                        return Err(Error::new(
-                                            path.span(),
-                                            "the generics attribute is defined more than once",
-                                        ));
-                                    }
-                                    None => generics_attr = Some(attr),
-                                },
-                                _ => return Err(Error::new(path.span(), "unsupported attribute")),
-                            },
-                            (AttrStyle::Outer, None) => {
-                                return Err(Error::new(path.span(), "unsupported attribute"));
+                    let pat_tokens = {
+                        let ty = scope.type_var_builder().from_pat(pat)?;
+                        quote! { #ty }
+                    };
+                    let body_tokens = translate_expr(body, &mut branched_env, items)?;
+                    let predicates = branched_env.predicates();
+
+                    // impl item for matched type
+                    let match_impl = {
+                        let trait_pattern = quote!( #match_trait_name<#(#generics,)* #pat_tokens> );
+                        let impl_ = quote! {
+                            impl< #(#generics),* > #trait_pattern for ()
+                            where
+                                #trait_bounds_tokens
+                            {
+                                type Output = #body_tokens;
                             }
-                            (AttrStyle::Inner(_), _) => {
-                                return Err(Error::new(
-                                    attr.span(),
-                                    "inner attribute is not supported",
-                                ))
-                            }
-                        }
-                    }
-                    generics_attr
-                };
+                        };
+                        impl_
+                    };
 
-                // insert new free quantifiers
-                if let Some(attr) = generics_attr {
-                    let GenericsAttr { params } = syn::parse2(attr.tokens.to_owned())?;
-                }
+                    // impls for side effects
+                    let assign_impls: Vec<_> = mutable_quantifiers
+                        .iter()
+                        .map(|ident| {
+                            let trait_name = &assign_trait_names[ident];
+                            let value = &branched_scope
+                                .get_quantifier(ident)
+                                .expect("please report bug: the variable is missing")
+                                .value;
+                            let trait_pattern =
+                                quote! { #trait_name< #(#generics,)* #pat_tokens > };
+                            let impl_ = quote! {
+                                impl< #(#generics),* > #trait_pattern for ()
+                                where
+                                    #trait_bounds_tokens
+                                {
+                                    type Output = #value;
+                                }
+                            };
+                            impl_
+                        })
+                        .collect();
 
-                // let cond_target = pat.into_pure_type()?;
+                    let impls: Vec<_> = iter::once(match_impl).chain(assign_impls).collect();
+                    Ok(impls)
+                },
+            )
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten()
+            .collect();
 
-                // let body_tokens = brancher.branch(cond_target, |sub_env| -> syn::Result<_> {
-                //     let body_id = translate_expr(body, sub_env)?;
-                //     let body_tokens = sub_enc.pop(body_id);
-                //     Ok(body_tokens)
-                // })?;
+        impl_items
+    };
 
-                // Ok(body_tokens)
-                todo!();
-                Ok(())
-            },
-        )
-        .try_collect()?;
-    // let tokens: Vec<_> = tokens_per_branch.into_iter().flatten().collect();
+    // add items to env
+    // env.add_item(match_trait_item);
+    // env.extend_items(assign_trait_items);
+    // env.extend_items(impl_items);
 
-    // let scope = brancher.merge();
-    // let output_id = scope.push(tokens);
+    // assign affected variables
+    // for ident in mutable_quantifiers.iter() {
+    //     let trait_name = &assign_trait_names[ident];
+    //     let trait_pattern = quote! { #trait_name < #(#generics),* , #pattern_tokens > };
+    //     scope.assign_quantifier(
+    //         ident,
+    //         quote! {
+    //             < () as #trait_pattern >::Output
+    //         },
+    //     )?;
+    //     scope.insert_trait_bounds(quote! { () }, trait_pattern);
+    // }
 
-    // Ok(output_id)
+    // construct returned value
+    // let output = {
+    //     let trait_pattern = quote! { #match_trait_name < #(#generics),* , #pattern_tokens > };
+    //     let output = quote! {
+    //         < () as #trait_pattern >::Output
+    //     };
+    //     scope.insert_trait_bounds(quote! { () }, trait_pattern);
+    //     output
+    // };
+
+    // Ok(output)
     todo!();
 }

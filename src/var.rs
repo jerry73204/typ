@@ -533,6 +533,160 @@ impl ParseTypeParamBoundsVar for Type {
     }
 }
 
+// substitution
+
+pub trait Subsitution {
+    type Output;
+
+    fn substitute(
+        &self,
+        env: &Env,
+        substitution: &IndexMap<Shared<Variable>, Ident>,
+    ) -> Self::Output;
+}
+
+impl Subsitution for TypeVar {
+    type Output = Type;
+
+    fn substitute(
+        &self,
+        env: &Env,
+        substitution: &IndexMap<Shared<Variable>, Ident>,
+    ) -> Self::Output {
+        match self {
+            TypeVar::Var(var) => var.substitute(env, substitution),
+            TypeVar::Path(path) => Type::Path(path.substitute(env, substitution)),
+            TypeVar::Tuple(tuple) => Type::Tuple(tuple.substitute(env, substitution)),
+        }
+    }
+}
+
+impl Subsitution for Shared<Variable> {
+    type Output = Type;
+
+    fn substitute(
+        &self,
+        env: &Env,
+        substitution: &IndexMap<Shared<Variable>, Ident>,
+    ) -> Self::Output {
+        match &self.value {
+            Some(value) => value.substitute(env, substitution),
+            None => {
+                let ident = substitution
+                    .get(self)
+                    .expect("the subsitution list is incomplete");
+                syn::parse2(quote! { #ident }).unwrap()
+            }
+        }
+    }
+}
+
+impl Subsitution for TypePathVar {
+    type Output = TypePath;
+
+    fn substitute(
+        &self,
+        env: &Env,
+        substitution: &IndexMap<Shared<Variable>, Ident>,
+    ) -> Self::Output {
+        let TypePathVar { qself, path } = self;
+        let path = path.substitute(env, substitution);
+
+        match *qself {
+            Some(QSelfVar { ref ty, position }) => {
+                let ty = ty.substitute(env, substitution);
+                let trait_: Vec<_> = path.segments.iter().take(position).collect();
+                let associated_type: Vec<_> = path.segments.iter().skip(position).collect();
+                syn::parse2(quote! { < #ty as #(#trait_)::* > #(::#associated_type)* }).unwrap()
+            }
+            None => syn::parse2(quote! { #path }).unwrap(),
+        }
+    }
+}
+
+impl Subsitution for TypeTupleVar {
+    type Output = TypeTuple;
+
+    fn substitute(
+        &self,
+        env: &Env,
+        substitution: &IndexMap<Shared<Variable>, Ident>,
+    ) -> Self::Output {
+        let elems: Vec<_> = self
+            .elems
+            .iter()
+            .map(|elem| elem.substitute(env, substitution))
+            .collect();
+        syn::parse2(quote! { (#(#elems),*) }).unwrap()
+    }
+}
+
+impl Subsitution for PathVar {
+    type Output = Path;
+
+    fn substitute(
+        &self,
+        env: &Env,
+        substitution: &IndexMap<Shared<Variable>, Ident>,
+    ) -> Self::Output {
+        let segments: Vec<_> = self
+            .segments
+            .iter()
+            .map(|SegmentVar { ident, arguments }| {
+                let arguments = arguments.substitute(env, substitution);
+                PathSegment {
+                    ident: ident.to_owned(),
+                    arguments,
+                }
+            })
+            .collect();
+
+        syn::parse2(quote! { #(#segments)::* }).unwrap()
+    }
+}
+
+impl Subsitution for PathArgumentsVar {
+    type Output = PathArguments;
+
+    fn substitute(
+        &self,
+        env: &Env,
+        substitution: &IndexMap<Shared<Variable>, Ident>,
+    ) -> Self::Output {
+        match self {
+            PathArgumentsVar::None => PathArguments::None,
+            PathArgumentsVar::AngleBracketed(args) => {
+                let args: Vec<_> = args
+                    .iter()
+                    .map(|arg| arg.substitute(env, substitution))
+                    .collect();
+                let args = syn::parse2(quote! { < #(#args),* > }).unwrap();
+                PathArguments::AngleBracketed(args)
+            }
+            PathArgumentsVar::Parenthesized(args) => {
+                let args: Vec<_> = args
+                    .iter()
+                    .map(|arg| arg.substitute(env, substitution))
+                    .collect();
+                let args = syn::parse2(quote! { ( #(#args),* ) }).unwrap();
+                PathArguments::Parenthesized(args)
+            }
+        }
+    }
+}
+
+impl Subsitution for WherePredicateVar {
+    type Output = WherePredicate;
+
+    fn substitute(
+        &self,
+        env: &Env,
+        substitution: &IndexMap<Shared<Variable>, Ident>,
+    ) -> Self::Output {
+        todo!();
+    }
+}
+
 // types
 
 #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
@@ -664,6 +818,14 @@ impl From<&TraitBoundModifier> for TraitBoundModifierVar {
 #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub enum WherePredicateVar {
     Type(PredicateTypeVar),
+}
+
+impl Parse for WherePredicateVar {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let predicate: WherePredicate = input.parse()?;
+        let predicate = predicate.parse_pure_where_predicate()?;
+        Ok(predicate)
+    }
 }
 
 #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]

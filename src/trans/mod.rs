@@ -18,8 +18,8 @@ pub use crate::{
     var::{
         ParsePathVar, ParsePureType, ParsePureWherePredicate, ParseTypeParamBoundsVar,
         ParseTypeVar, ParseWherePredicateVar, PathArgumentsVar, PathVar, PredicateTypeVar,
-        QSelfVar, SegmentVar, TraitBoundModifierVar, TraitBoundVar, TypeParamBoundVar, TypePathVar,
-        TypeTupleVar, TypeVar, WherePredicateVar,
+        QSelfVar, SegmentVar, Subsitution, TraitBoundModifierVar, TraitBoundVar, TypeParamBoundVar,
+        TypePathVar, TypeTupleVar, TypeVar, WherePredicateVar,
     },
 };
 pub use assign::*;

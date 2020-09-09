@@ -1,6 +1,10 @@
 use super::*;
 
-pub fn translate_assign_expr(assign: &ExprAssign, scope: &mut Env) -> syn::Result<TypeVar>
+pub fn translate_assign_expr(
+    assign: &ExprAssign,
+    scope: &mut Env,
+    items: &mut Vec<Item>,
+) -> syn::Result<TypeVar>
 where
 {
     let ExprAssign { left, right, .. } = assign;
@@ -15,7 +19,7 @@ where
     };
 
     // parse rhs
-    let value = translate_expr(right, scope)?;
+    let value = translate_expr(right, scope, items)?;
 
     // update state
     scope.assign_quantifier(ident, value)?;

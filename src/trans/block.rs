@@ -1,6 +1,10 @@
 use super::*;
 
-pub fn translate_block(block: &Block, scope: &mut Env) -> syn::Result<TypeVar>
+pub fn translate_block(
+    block: &Block,
+    scope: &mut Env,
+    items: &mut Vec<Item>,
+) -> syn::Result<TypeVar>
 where
 {
     let mut output_ty = None;
@@ -46,7 +50,7 @@ where
                     };
 
                     // compute output type from expression
-                    let value = translate_expr(expr, scope)?;
+                    let value = translate_expr(expr, scope, items)?;
 
                     // add new bounded quantifier
                     scope.insert_bounded_quantifier(ident.to_owned(), is_mut, value.clone());
@@ -66,10 +70,10 @@ where
                     return Err(Error::new(item.span(), "in-block item is not allowed"))
                 }
                 Stmt::Expr(expr) => {
-                    output_ty = Some(translate_expr(expr, scope)?);
+                    output_ty = Some(translate_expr(expr, scope, items)?);
                 }
                 Stmt::Semi(expr, _semi) => {
-                    translate_expr(expr, scope)?;
+                    translate_expr(expr, scope, items)?;
                     output_ty = None;
                 }
             }

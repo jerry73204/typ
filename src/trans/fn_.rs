@@ -163,7 +163,8 @@ pub fn translate_fn(
     };
 
     // translate block
-    let output = translate_block(&block, &mut scope)?;
+    let mut items = vec![];
+    let output = translate_block(&block, &mut scope, &mut items)?;
 
     // insert trait bound for output type
     // dbg!();

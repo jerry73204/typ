@@ -3,8 +3,9 @@ use super::*;
 pub fn translate_unary_expr(
     ExprUnary { op, expr, .. }: &ExprUnary,
     scope: &mut Env,
+    items: &mut Vec<Item>,
 ) -> syn::Result<TypeVar> {
-    let operand = translate_expr(expr, scope)?;
+    let operand = translate_expr(expr, scope, items)?;
 
     let output = match op {
         UnOp::Neg(_) => {

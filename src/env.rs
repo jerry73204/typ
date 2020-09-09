@@ -1,7 +1,7 @@
 use crate::{
     common::*,
     utils::{IntoRc, Shared, SharedCell},
-    var::{TypeVar, Var, WherePredicateVar},
+    var::{PredicateTypeVar, TypeParamBoundVar, TypeVar, Var, WherePredicateVar},
 };
 
 pub use env::*;
@@ -12,16 +12,20 @@ mod env {
     #[derive(Debug, Clone)]
     pub struct Env {
         self_name: Rc<Ident>,
-        predicates: IndexSet<Rc<WherePredicateVar>>,
+        variables: SharedCell<IndexSet<Shared<Variable>>>,
+        type_predicates: HashMap<TypeVar, HashSet<TypeParamBoundVar>>,
         namespace: Vec<HashMap<Rc<Ident>, Shared<Variable>>>,
+        trait_name_prefixes: SharedCell<Trie<String, usize>>,
     }
 
     impl Env {
         pub fn new(self_name: Ident) -> Self {
             Self {
                 self_name: Rc::new(self_name),
-                predicates: IndexSet::new(),
+                variables: SharedCell::new(IndexSet::new()),
+                type_predicates: HashMap::new(),
                 namespace: vec![HashMap::new()],
+                trait_name_prefixes: SharedCell::new(Trie::new()),
             }
         }
 
@@ -39,7 +43,7 @@ mod env {
             env
         }
 
-        pub fn insert_free_quantifier(&mut self, ident: Ident) {
+        pub fn insert_free_quantifier(&mut self, ident: Ident) -> Shared<Variable> {
             // create a new variable
             let ident = Rc::new(ident);
             let var = Shared::new(Variable {
@@ -47,14 +51,24 @@ mod env {
                 value: None,
             });
 
+            // insert to var list
+            self.variables.borrow_mut().insert(var.clone());
+
             // insert to namespace
             self.namespace
                 .last_mut()
                 .unwrap()
                 .insert(ident.clone(), var.clone());
+
+            var
         }
 
-        pub fn insert_bounded_quantifier<T>(&mut self, ident: Ident, is_mut: bool, value: T)
+        pub fn insert_bounded_quantifier<T>(
+            &mut self,
+            ident: Ident,
+            is_mut: bool,
+            value: T,
+        ) -> Shared<Variable>
         where
             T: IntoRc<Inner = TypeVar>,
         {
@@ -65,18 +79,27 @@ mod env {
                 value: Some(value.into_rc()),
             });
 
+            // insert to var list
+            self.variables.borrow_mut().insert(var.clone());
+
             // insert to namespace
             self.namespace
                 .last_mut()
                 .unwrap()
-                .insert(ident.clone(), var);
+                .insert(ident.clone(), var.clone());
+
+            var
         }
 
-        pub fn insert_predicate<T>(&mut self, predicate: T)
-        where
-            T: IntoRc<Inner = WherePredicateVar>,
-        {
-            self.predicates.insert(predicate.into_rc());
+        pub fn insert_predicate(&mut self, predicate: WherePredicateVar) {
+            match predicate {
+                WherePredicateVar::Type(PredicateTypeVar { bounded_ty, bounds }) => {
+                    self.type_predicates
+                        .entry(bounded_ty)
+                        .or_insert_with(|| HashSet::new())
+                        .extend(bounds);
+                }
+            }
         }
 
         pub fn assign_quantifier<T>(&mut self, ident: &Ident, value: T) -> syn::Result<()>
@@ -111,16 +134,16 @@ mod env {
             }
         }
 
-        pub fn mutable_quantifiers(&self) -> Vec<Shared<Variable>> {
+        pub fn mutable_quantifiers(&self) -> HashMap<Rc<Ident>, Shared<Variable>> {
             let (_shadowed, output) = self.namespace.iter().rev().fold(
-                (HashSet::new(), vec![]),
+                (HashSet::new(), HashMap::new()),
                 |mut state, variables| {
                     let (shadowed, output) = &mut state;
 
                     variables.iter().for_each(|(ident, var)| {
                         if shadowed.insert(ident.to_owned()) {
                             if var.is_mut {
-                                output.push(var.clone());
+                                output.insert(ident.to_owned(), var.clone());
                             }
                         }
                     });
@@ -129,6 +152,31 @@ mod env {
                 },
             );
             output
+        }
+
+        pub fn free_quantifiers(&self) -> Vec<Shared<Variable>> {
+            self.variables
+                .borrow()
+                .iter()
+                .filter_map(|var| {
+                    if var.is_free() {
+                        Some(var.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        }
+
+        pub fn predicates(&self) -> Vec<WherePredicateVar> {
+            let type_predicates = self.type_predicates.iter().map(|(bounded_ty, bounds)| {
+                let bounds: Vec<_> = bounds.iter().cloned().collect();
+                WherePredicateVar::Type(PredicateTypeVar {
+                    bounded_ty: bounded_ty.clone(),
+                    bounds,
+                })
+            });
+            type_predicates.collect()
         }
 
         pub fn sub_scope<F, T>(&mut self, f: F) -> T
@@ -147,9 +195,19 @@ mod env {
             ret
         }
 
-        /// Compile trait bounds for each branch in form of [[ty, bounds]].
-        pub fn predicates(&self) -> &IndexSet<Rc<WherePredicateVar>> {
-            &self.predicates
+        pub fn register_trait_name(&mut self, prefix: &str) -> Option<Ident> {
+            let count = {
+                let mut prefixes = self.trait_name_prefixes.borrow_mut();
+
+                // check if the prefix is a proper prefix of existing prefixes
+                if let Some(_) = prefixes.subtrie_mut(prefix) {
+                    return None;
+                }
+                prefixes.map_with_default(prefix.to_string(), |count| *count += 1, 0);
+                *prefixes.get(prefix).unwrap()
+            };
+
+            Some(format_ident!("{}{}", prefix, count))
         }
     }
 

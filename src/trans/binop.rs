@@ -5,12 +5,13 @@ pub fn translate_binary_expr(
         left, right, op, ..
     }: &ExprBinary,
     scope: &mut Env,
+    items: &mut Vec<Item>,
 ) -> syn::Result<TypeVar>
 where
 {
     // parse lhs and rhs
-    let lhs = translate_expr(left, scope)?;
-    let rhs = translate_expr(right, scope)?;
+    let lhs = translate_expr(left, scope, items)?;
+    let rhs = translate_expr(right, scope, items)?;
 
     // compute output
     match op {

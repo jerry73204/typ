@@ -1,6 +1,10 @@
 use super::*;
 
-pub fn translate_lit_expr(expr: &ExprLit, scope: &mut Env) -> syn::Result<TypeVar> {
+pub fn translate_lit_expr(
+    expr: &ExprLit,
+    scope: &mut Env,
+    items: &mut Vec<Item>,
+) -> syn::Result<TypeVar> {
     let ExprLit { lit, .. } = expr;
 
     // parse literal
