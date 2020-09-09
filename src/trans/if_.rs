@@ -211,7 +211,7 @@ where
             }
             None => {
                 let if_impls: Vec<_> = {
-                    let mut branched_env = env.clone();
+                    let mut branched_env = env.branch();
                     translate_block(then_branch, &mut branched_env, items)?;
                     let predicates: Vec<_> = branched_env
                         .predicates()
@@ -317,28 +317,84 @@ where
     // assign affected variables
     for ident in mutable_quantifiers.keys() {
         let trait_name = &assign_trait_names[ident];
+        let args: Vec<_> = free_quantifiers
+            .iter()
+            .map(|var| TypeVar::Var(var.clone()))
+            .chain(iter::once(condition.clone()))
+            .collect();
         let trait_ = PathVar {
             segments: vec![SegmentVar {
                 ident: trait_name.to_owned(),
-                arguments: PathArgumentsVar::AngleBracketed(todo!()),
+                arguments: PathArgumentsVar::AngleBracketed(args),
             }],
         };
-        // let trait_ = quote! { #trait_name < #(#generics,)* #cond_generic > };
-        // let value: TypeVar = syn::parse2(quote! { < () as #trait_ >::Output })?;
-        // let predicate: WherePredicateVar = syn::parse2(quote! { (): #trait_ })?;
-        // env.assign_quantifier(ident, value)?;
-        // env.insert_predicate(predicate);
-        todo!();
+        let path = {
+            let mut path = trait_.clone();
+            path.segments.push(SegmentVar {
+                ident: format_ident!("Output"),
+                arguments: PathArgumentsVar::None,
+            });
+            path
+        };
+        let bounded_ty: TypeVar = syn::parse2(quote! { () }).unwrap();
+        let value = TypeVar::Path(TypePathVar {
+            qself: Some(QSelfVar {
+                ty: Box::new(bounded_ty.clone()),
+                position: trait_.segments.len(),
+            }),
+            path,
+        });
+        let predicate = WherePredicateVar::Type(PredicateTypeVar {
+            bounded_ty,
+            bounds: vec![TypeParamBoundVar::Trait(TraitBoundVar {
+                modifier: TraitBoundModifierVar::None,
+                path: trait_,
+            })],
+        });
+
+        env.assign_quantifier(ident, value)?;
+        env.insert_predicate(predicate);
     }
 
     // construct output
     let output = {
-        // let trait_ = quote! { #if_trait_name < #(#generics,)* #cond_generic > };
-        // let output: TypeVar = syn::parse2(quote! { < () as #trait_ >::Output })?;
-        // let predicate: WherePredicateVar = syn::parse2(quote! { (): #trait_ })?;
-        // env.insert_predicate(predicate);
-        // output
-        todo!();
+        let args: Vec<_> = free_quantifiers
+            .iter()
+            .map(|var| TypeVar::Var(var.clone()))
+            .chain(iter::once(condition))
+            .collect();
+        let trait_ = PathVar {
+            segments: vec![SegmentVar {
+                ident: if_trait_name.to_owned(),
+                arguments: PathArgumentsVar::AngleBracketed(args),
+            }],
+        };
+        let path = {
+            let mut path = trait_.clone();
+            path.segments.push(SegmentVar {
+                ident: format_ident!("Output"),
+                arguments: PathArgumentsVar::None,
+            });
+            path
+        };
+        let bounded_ty: TypeVar = syn::parse2(quote! { () }).unwrap();
+        let output = TypeVar::Path(TypePathVar {
+            qself: Some(QSelfVar {
+                ty: Box::new(bounded_ty.clone()),
+                position: trait_.segments.len(),
+            }),
+            path,
+        });
+        let predicate = WherePredicateVar::Type(PredicateTypeVar {
+            bounded_ty,
+            bounds: vec![TypeParamBoundVar::Trait(TraitBoundVar {
+                modifier: TraitBoundModifierVar::None,
+                path: trait_,
+            })],
+        });
+
+        env.insert_predicate(predicate);
+        output
     };
 
     // add items to env

@@ -36,7 +36,7 @@ pub fn translate_fn(
     }
 
     // create root scope
-    let mut scope = Env::new(fn_name.clone());
+    let mut env = Env::new(fn_name.clone());
 
     // check if "self" is present in the input arguments and is consistent with impl block
     let self_ty_tokens = match (self_ty, inputs.first()) {
@@ -73,20 +73,20 @@ pub fn translate_fn(
         // create initial quantifiers
         for param in generics.params.iter() {
             if let GenericParam::Type(TypeParam { ident, bounds, .. }) = param {
-                scope.insert_free_quantifier(ident.to_owned());
+                env.insert_free_quantifier(ident.to_owned());
             }
         }
 
         // insert trait bounds
         for param in generics.params.iter() {
-            let predicate = param.parse_where_predicate_var(&scope)?;
-            scope.insert_predicate(predicate);
+            let predicate = param.parse_where_predicate_var(&env)?;
+            env.insert_predicate(predicate);
         }
 
         if let Some(where_clause) = &generics.where_clause {
             for predicate in where_clause.predicates.iter() {
-                let predicate = predicate.parse_where_predicate_var(&scope)?;
-                scope.insert_predicate(predicate);
+                let predicate = predicate.parse_where_predicate_var(&env)?;
+                env.insert_predicate(predicate);
             }
         }
 
@@ -136,8 +136,8 @@ pub fn translate_fn(
         // insert trait bounds
         for arg in inputs.iter() {
             if let FnArg::Typed(pat_type) = arg {
-                let predicate = pat_type.parse_where_predicate_var(&scope)?;
-                scope.insert_predicate(predicate);
+                let predicate = pat_type.parse_where_predicate_var(&env)?;
+                env.insert_predicate(predicate);
             }
         }
 
@@ -147,7 +147,7 @@ pub fn translate_fn(
                 FnArg::Typed(pat_type) => Some(pat_type),
                 FnArg::Receiver(_) => None,
             })
-            .map(|PatType { pat, .. }| pat.parse_type_var(&scope))
+            .map(|PatType { pat, .. }| pat.parse_type_var(&env))
             .try_collect()?;
 
         fn_args
@@ -157,180 +157,107 @@ pub fn translate_fn(
     let output_bounds = match output {
         ReturnType::Default => None,
         ReturnType::Type(_, ty) => {
-            let bounds = ty.parse_type_param_bounds_var(&scope)?;
-            Some(Rc::new(bounds))
+            let bounds = ty.parse_type_param_bounds_var(&env)?;
+            Some(bounds)
         }
     };
 
     // translate block
     let mut items = vec![];
-    let output = translate_block(&block, &mut scope, &mut items)?;
+    let output = translate_block(&block, &mut env, &mut items)?;
 
     // insert trait bound for output type
-    // dbg!();
-    // if let Some(bounds) = &output_bounds {
-    //     let predicates: Vec<_> = outputs_per_branch
-    //         .iter()
-    //         .cloned()
-    //         .map(|output| (output, bounds.clone()))
-    //         .collect();
-    //     scope.insert_trait_bounds(predicates);
-    // }
+    if let Some(bounds) = &output_bounds {
+        let predicate = WherePredicateVar::Type(PredicateTypeVar {
+            bounded_ty: output.clone(),
+            bounds: bounds.to_owned(),
+        });
+
+        env.insert_predicate(predicate);
+    }
+
+    // generate generics
+    let free_quantifiers = env.free_quantifiers();
+    let subsitution: IndexMap<_, _> = free_quantifiers
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(index, var)| (var, format_ident!("{}{}", IDENT_PREFIX, index)))
+        .collect();
+    let input_generics: Vec<_> = subsitution.values().collect();
 
     // generate trait names
-    let pub_type_name = format_ident!("{}Op", fn_name);
-    let pub_trait_name = format_ident!("{}", fn_name);
-    let priv_trait_name = format_ident!("{}{}", IDENT_PREFIX, fn_name);
+    let type_name = format_ident!("{}Op", fn_name);
+    let trait_name = format_ident!("{}", fn_name);
 
     // generate trait
-    // let pub_trait_item = {
-    //     let num_placeholders = fn_args.len();
+    let trait_item: ItemTrait = {
+        let num_args = fn_args.len();
+        let args: Vec<_> = (0..num_args)
+            .map(|idx| format_ident!("{}ARG_{}", IDENT_PREFIX, idx))
+            .collect();
+        let output_predicate = output_bounds.as_ref().map(|bounds| {
+            WherePredicateVar::Type(PredicateTypeVar {
+                bounded_ty: syn::parse2(quote! { Self::Output }).unwrap(),
+                bounds: bounds.to_owned(),
+            })
+            .substitute(&env, &subsitution)
+        });
 
-    //     let placeholders: Vec<_> = (0..num_placeholders)
-    //         .map(|idx| format_ident!("{}{}", IDENT_PREFIX, idx))
-    //         .collect();
-    //     let output_predicate = output_bounds
-    //         .as_ref()
-    //         .map(|bounds| quote! { Self::Output : #bounds });
-
-    //     quote! {
-    //         #vis trait #pub_trait_name < #(#placeholders),* >
-    //         where
-    //             #output_predicate
-    //         {
-    //             type Output;
-    //         }
-    //     }
-    // };
-
-    // let priv_trait_item = {
-    //     let num_placeholders = fn_args.len() + scope.num_conditions();
-
-    //     let placeholders: Vec<_> = (0..num_placeholders)
-    //         .map(|idx| format_ident!("{}{}", IDENT_PREFIX, idx))
-    //         .collect();
-    //     let output_predicate = output_bounds
-    //         .as_ref()
-    //         .map(|bounds| quote! { Self::Output : #bounds });
-
-    //     quote! {
-    //         #[allow(non_camel_case_types)]
-    //         trait #priv_trait_name < #(#placeholders),* >
-    //         where
-    //             #output_predicate
-    //         {
-    //             type Output;
-    //         }
-    //     }
-    // };
+        syn::parse2(quote! {
+            pub trait #trait_name < #(#args),* >
+            where
+                #output_predicate
+            {
+                type Output;
+            }
+        })?
+    };
 
     // generate impl items
-    // dbg!();
-    // let (conditions, cond_targets_per_branch) = scope.conditions(); // conditions for each branch
-    // let trait_bounds_per_branch = scope.trait_bounds(); // trait bounds for each branch
+    let impl_item: ItemImpl = {
+        let input_types: Vec<_> = fn_args
+            .iter()
+            .map(|arg| arg.substitute(&env, &subsitution))
+            .collect();
+        let predicates: Vec<_> = env
+            .predicates()
+            .into_iter()
+            .map(|predicate| predicate.substitute(&env, &subsitution))
+            .collect();
+        let output = output.substitute(&env, &subsitution);
 
-    // let pub_impl_item = {
-    //     let input_types: Vec<_> = fn_args.iter().map(|(ty, _bounds)| ty).collect();
-    //     let trait_pattern = quote! { #priv_trait_name<#(#input_types),* #(,#conditions)*> };
-    //     let trait_bounds: Vec<_> = trait_bounds_per_branch
-    //         .iter()
-    //         .flatten()
-    //         .map(|(ty, bounds)| quote! { #ty: #bounds })
-    //         .chain(iter::once(quote! { #self_ty_tokens: #trait_pattern }))
-    //         .collect();
+        syn::parse2(quote! {
+            impl<#(#input_generics),*>  #trait_name< #(#input_types),* > for #self_ty_tokens
+            where
+                #(#predicates),*
+            {
+                type Output = #output;
+            }
+        })?
+    };
 
-    //     quote! {
-    //         impl<#(#input_generics),*>  #pub_trait_name< #(#input_types),* > for #self_ty_tokens
-    //         where
-    //             #(#trait_bounds),*
-    //         {
-    //             type Output = <#self_ty_tokens as #trait_pattern>::Output;
-    //         }
-    //     }
-    // };
+    // push items to child module
+    items.push(Item::Trait(trait_item));
+    items.push(Item::Impl(impl_item));
 
-    // let priv_impl_items: Vec<_> = outputs_per_branch
-    //     .into_iter()
-    //     .zip_eq(cond_targets_per_branch)
-    //     .zip_eq(trait_bounds_per_branch)
-    //     .map(|((output, cond_targets), trait_bounds)| {
-    //         let generics = {
-    //             let cond_generics =
-    //                 cond_targets
-    //                     .iter()
-    //                     .enumerate()
-    //                     .flat_map(|(idx, target)| match target {
-    //                         Some(_) => None,
-    //                         None => Some(format_ident!("{}{}", IDENT_PREFIX, idx)),
-    //                     });
-    //             let generics: Vec<_> = input_generics
-    //                 .iter()
-    //                 .cloned()
-    //                 .map(ToOwned::to_owned)
-    //                 .chain(cond_generics)
-    //                 .collect();
-    //             generics
-    //         };
-    //         let input_types = {
-    //             let cond_input_types =
-    //                 cond_targets
-    //                     .iter()
-    //                     .enumerate()
-    //                     .map(|(idx, target)| match target {
-    //                         Some(tar) => quote! { #tar },
-    //                         None => {
-    //                             let generic = format_ident!("{}{}", IDENT_PREFIX, idx);
-    //                             quote! { #generic }
-    //                         }
-    //                     });
-    //             let input_types: Vec<_> = fn_args
-    //                 .iter()
-    //                 .map(|(ty, _bounds)| ty.to_owned())
-    //                 .chain(cond_input_types)
-    //                 .collect();
-    //             input_types
-    //         };
-    //         let trait_bounds_predicates: Vec<_> = trait_bounds
-    //             .iter()
-    //             .map(|(ty, bounds)| quote! { #ty: #bounds })
-    //             .collect();
+    let expanded = {
+        let num_args = fn_args.len();
+        let args: Vec<_> = (0..num_args)
+            .map(|idx| format_ident!("{}ARG_{}", IDENT_PREFIX, idx))
+            .collect();
+        let mod_name = format_ident!("{}mod_{}", IDENT_PREFIX, fn_name);
+        let type_name = format_ident!("{}Op", fn_name);
 
-    //         quote! {
-    //             impl<#(#generics),*>  #priv_trait_name< #(#input_types),* > for #self_ty_tokens
-    //             where
-    //                 #(#trait_bounds_predicates),*
-    //             {
-    //                 type Output = #output;
-    //             }
-    //         }
-    //     })
-    //     .collect();
+        quote! {
+            #vis use #mod_name :: #trait_name;
+            #vis type #type_name<#(#args),*> = < () as #trait_name <#(#args),*> > :: Output;
 
-    // generate type alias
-    // let pub_type_item = {
-    //     let num_placeholders = fn_args.len();
-    //     let placeholders: Vec<_> = (0..num_placeholders)
-    //         .map(|idx| format_ident!("{}{}", IDENT_PREFIX, idx))
-    //         .collect();
+            mod #mod_name {
+                #(#items)*
+            }
+        }
+    };
 
-    //     quote! {
-    //         #vis type #pub_type_name < #(#placeholders),* > = <() as #pub_trait_name < #(#placeholders),* > >::Output;
-    //     }
-    // };
-
-    // combine all items
-    // let expanded = quote! {
-    //     #pub_type_item
-
-    //     #pub_trait_item
-
-    //     #pub_impl_item
-
-    //     #priv_trait_item
-
-    //     #(#priv_impl_items)*
-    // };
-
-    // Ok(expanded)
-    todo!();
+    Ok(expanded)
 }

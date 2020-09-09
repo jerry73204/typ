@@ -690,7 +690,39 @@ impl Subsitution for WherePredicateVar {
         env: &Env,
         substitution: &IndexMap<Shared<Variable>, Ident>,
     ) -> Self::Output {
-        todo!();
+        match self {
+            WherePredicateVar::Type(PredicateTypeVar { bounded_ty, bounds }) => {
+                let bounded_ty = bounded_ty.substitute(env, substitution);
+                let bounds: Vec<_> = bounds
+                    .into_iter()
+                    .map(|bound| bound.substitute(env, substitution))
+                    .collect();
+                let predicate: WherePredicate =
+                    syn::parse2(quote! { #bounded_ty: #(#bounds)+* }).unwrap();
+                predicate
+            }
+        }
+    }
+}
+
+impl Subsitution for TypeParamBoundVar {
+    type Output = TypeParamBound;
+
+    fn substitute(
+        &self,
+        env: &Env,
+        substitution: &IndexMap<Shared<Variable>, Ident>,
+    ) -> Self::Output {
+        match self {
+            TypeParamBoundVar::Trait(TraitBoundVar { modifier, path }) => {
+                let path = path.substitute(env, substitution);
+                let bound: TraitBound = match modifier {
+                    TraitBoundModifierVar::None => syn::parse2(quote! { #path }).unwrap(),
+                    TraitBoundModifierVar::Maybe => syn::parse2(quote! { ?#path }).unwrap(),
+                };
+                TypeParamBound::Trait(bound)
+            }
+        }
     }
 }
 
