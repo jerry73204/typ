@@ -2,7 +2,7 @@
 
 TYP enables you to write _type operators_, the functions that translates types, in Rust syntax.
 
-It is an redesign of [willcrichton/Tyrade](https://github.com/willcrichton/tyrade) and was inspired by [jerry73204/type-freak](https://github.com/jerry73204/rust-type-freak).
+It is redesign of [willcrichton/Tyrade](https://github.com/willcrichton/tyrade) and was inspired by [jerry73204/type-freak](https://github.com/jerry73204/rust-type-freak).
 
 ## Features
 
