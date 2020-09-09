@@ -38,5 +38,8 @@ fn binary_gcd() {
     let _: AssertSameOp<BinaryGcdOp<U0, U1>, U1> = ();
     let _: AssertSameOp<BinaryGcdOp<U2, U4>, U2> = ();
     let _: AssertSameOp<BinaryGcdOp<U6, U3>, U3> = ();
+    let _: AssertSameOp<BinaryGcdOp<U4, U4>, U4> = ();
+    let _: AssertSameOp<BinaryGcdOp<U7, U17>, U1> = ();
+    let _: AssertSameOp<BinaryGcdOp<U58, U11>, U1> = ();
     let _: AssertSameOp<BinaryGcdOp<tyuint!(624129), tyuint!(2061517)>, tyuint!(18913)> = ();
 }
