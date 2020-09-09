@@ -182,12 +182,11 @@ pub fn translate_fn(
         .iter()
         .cloned()
         .enumerate()
-        .map(|(index, var)| (var, format_ident!("{}{}", IDENT_PREFIX, index)))
+        .map(|(index, var)| (var, format_ident!("{}GENERIC_{}", IDENT_PREFIX, index)))
         .collect();
     let input_generics: Vec<_> = subsitution.values().collect();
 
     // generate trait names
-    let type_name = format_ident!("{}Op", fn_name);
     let trait_name = format_ident!("{}", fn_name);
 
     // generate trait
@@ -205,6 +204,7 @@ pub fn translate_fn(
         });
 
         syn::parse2(quote! {
+            #[allow(non_snake_case)]
             pub trait #trait_name < #(#args),* >
             where
                 #output_predicate
@@ -253,7 +253,10 @@ pub fn translate_fn(
             #vis use #mod_name :: #trait_name;
             #vis type #type_name<#(#args),*> = < () as #trait_name <#(#args),*> > :: Output;
 
+            #[allow(non_snake_case)]
             mod #mod_name {
+                use super::*;
+
                 #(#items)*
             }
         }

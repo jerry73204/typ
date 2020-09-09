@@ -246,6 +246,33 @@ impl ParseTypeVar for Type {
 impl ParseTypeVar for Pat {
     fn parse_type_var(&self, scope: &Env) -> syn::Result<TypeVar> {
         match self {
+            Pat::Ident(pat_ident) => {
+                // sanity check
+                let PatIdent {
+                    ident,
+                    by_ref,
+                    mutability,
+                    subpat,
+                    ..
+                } = pat_ident;
+
+                if let Some(by_ref) = by_ref {
+                    return Err(Error::new(by_ref.span(), "ref keyword is not supported"));
+                }
+
+                if let Some(mutability) = mutability {
+                    return Err(Error::new(
+                        mutability.span(),
+                        "mut keyword is not supported",
+                    ));
+                }
+
+                if let Some(_) = subpat {
+                    return Err(Error::new(pat_ident.span(), "subpattern is not supported"));
+                }
+
+                ident.parse_type_var(scope)
+            }
             Pat::Path(PatPath { qself, path, .. }) => {
                 let qself = match qself {
                     Some(QSelf { ty, position, .. }) => {

@@ -12,7 +12,7 @@ mod env {
     #[derive(Debug)]
     pub struct Env {
         self_name: Rc<Ident>,
-        variables: SharedCell<IndexSet<Shared<Variable>>>,
+        variables: IndexSet<Shared<Variable>>,
         type_predicates: HashMap<TypeVar, HashSet<TypeParamBoundVar>>,
         namespace: Vec<HashMap<Rc<Ident>, Shared<Variable>>>,
         trait_name_prefixes: SharedCell<Trie<String, usize>>,
@@ -22,7 +22,7 @@ mod env {
         pub fn new(self_name: Ident) -> Self {
             Self {
                 self_name: Rc::new(self_name),
-                variables: SharedCell::new(IndexSet::new()),
+                variables: IndexSet::new(),
                 type_predicates: HashMap::new(),
                 namespace: vec![HashMap::new()],
                 trait_name_prefixes: SharedCell::new(Trie::new()),
@@ -65,7 +65,7 @@ mod env {
             });
 
             // insert to var list
-            self.variables.borrow_mut().insert(var.clone());
+            self.variables.insert(var.clone());
 
             // insert to namespace
             self.namespace
@@ -93,7 +93,7 @@ mod env {
             });
 
             // insert to var list
-            self.variables.borrow_mut().insert(var.clone());
+            self.variables.insert(var.clone());
 
             // insert to namespace
             self.namespace
@@ -169,7 +169,6 @@ mod env {
 
         pub fn free_quantifiers(&self) -> Vec<Shared<Variable>> {
             self.variables
-                .borrow()
                 .iter()
                 .filter_map(|var| {
                     if var.is_free() {
@@ -213,8 +212,10 @@ mod env {
                 let mut prefixes = self.trait_name_prefixes.borrow_mut();
 
                 // check if the prefix is a proper prefix of existing prefixes
-                if let Some(_) = prefixes.subtrie_mut(prefix) {
-                    return None;
+                if let Some(subtrie) = prefixes.subtrie(prefix) {
+                    if !subtrie.is_leaf() {
+                        return None;
+                    }
                 }
                 prefixes.map_with_default(prefix.to_string(), |count| *count += 1, 0);
                 *prefixes.get(prefix).unwrap()

@@ -35,8 +35,10 @@ mod animal_test {
     }
 }
 
-mod list_test {
+mod recursive_append_list_test {
     use super::*;
+
+    // traits and types
 
     pub trait List {}
 
@@ -54,13 +56,36 @@ mod list_test {
 
     impl List for Nil {}
 
+    // append type operator
+
     typ::typ! {
-        fn Append<L>(L: List) -> List {
-            match L {
-                #[generics(Head, Tail: List)]
-                Cons::<Head, Tail> => {}
-                Nil => {}
+        fn Append<input, value>(input: List, value: _) -> List {
+            match input {
+                #[generics(head, tail: List)]
+                Cons::<head, tail> => {
+                    let new_tail = Append(tail, value);
+                    Cons::<head, new_tail>
+                }
+                Nil => {
+                    Cons::<value, Nil>
+                }
             }
         }
     }
+
+    #[test]
+    fn test() {
+        use typenum::consts::*;
+        type List0 = Nil;
+        type List1 = Cons<U0, Nil>;
+        type List2 = Cons<U0, Cons<U1, Nil>>;
+        type List3 = Cons<U0, Cons<U1, Cons<U2, Nil>>>;
+        type List4 = Cons<U0, Cons<U1, Cons<U2, Cons<U3, Nil>>>>;
+
+        let _: AssertSameOp<AppendOp<List0, U0>, List1> = ();
+        let _: AssertSameOp<AppendOp<List1, U1>, List2> = ();
+        let _: AssertSameOp<AppendOp<List2, U2>, List3> = ();
+        let _: AssertSameOp<AppendOp<List3, U3>, List4> = ();
+    }
+
 }

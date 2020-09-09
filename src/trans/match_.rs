@@ -27,7 +27,7 @@ where
         .keys()
         .map(|ident| {
             let trait_name = env
-                .register_trait_name(&format!("{}MatchAssign", IDENT_PREFIX))
+                .register_trait_name(&format!("{}MatchAssign_", IDENT_PREFIX))
                 .expect("please report bug: accidentally using a proper prefix");
             (ident, trait_name)
         })
@@ -48,6 +48,7 @@ where
         let cond_generic = format_ident!("{}_CONDITION_GENERIC", IDENT_PREFIX);
 
         let match_trait_item: ItemTrait = syn::parse2(quote! {
+            #[allow(non_snake_case)]
             pub trait #match_trait_name < #(#parent_generics,)* #cond_generic> {
                 type Output;
             }
@@ -57,6 +58,7 @@ where
             .values()
             .map(|trait_name| {
                 syn::parse2(quote! {
+                    #[allow(non_snake_case)]
                     pub trait #trait_name < #(#parent_generics,)* #cond_generic> {
                         type Output;
                     }
@@ -89,9 +91,9 @@ where
                                 .iter()
                                 .map(|param| -> syn::Result<_> {
                                     let SimpleTypeParam { ident, .. } = param;
+                                    let var = branched_env.insert_free_quantifier(ident.to_owned());
                                     let predicate =
                                         param.parse_where_predicate_var(&branched_env)?;
-                                    let var = branched_env.insert_free_quantifier(ident.to_owned());
                                     branched_env.insert_predicate(predicate);
                                     Ok(var)
                                 })
@@ -102,7 +104,7 @@ where
                     };
 
                     // generate free quantifier substitutions
-                    let substitution: IndexMap<_, _> = env
+                    let substitution: IndexMap<_, _> = branched_env
                         .free_quantifiers()
                         .iter()
                         .cloned()
@@ -135,7 +137,7 @@ where
                         .map(|predicate| predicate.substitute(&branched_env, &substitution))
                         .collect();
 
-                    // impl item for matched type
+                    // impl item for output type
                     let match_impl: ItemImpl = {
                         let trait_ = quote!( #match_trait_name<#(#input_generics,)* #target> );
                         let impl_ = quote! {
@@ -149,7 +151,7 @@ where
                         syn::parse2(impl_)?
                     };
 
-                    // impls for side effects
+                    // impls for variable assignments
                     let assign_impls: Vec<ItemImpl> = mutable_quantifiers
                         .keys()
                         .map(|ident| {

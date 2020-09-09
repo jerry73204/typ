@@ -82,15 +82,15 @@ where
 
         // set the type arguments on trait
         trait_path.segments.last_mut().as_mut().unwrap().arguments =
-            match trait_path.segments.last().unwrap().arguments {
-                _ => {
-                    return Err(Error::new(
-                        func.span(),
-                        "type parameters are not allowed in trait call",
-                    ));
-                }
-                PathArgumentsVar::None => PathArgumentsVar::AngleBracketed(args),
+            if let PathArgumentsVar::None = trait_path.segments.last().unwrap().arguments {
+                PathArgumentsVar::AngleBracketed(args)
+            } else {
+                return Err(Error::new(
+                    func.span(),
+                    "type parameters are not allowed in trait call",
+                ));
             };
+
         trait_path
     };
 

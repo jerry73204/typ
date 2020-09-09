@@ -61,14 +61,14 @@ where
 
     // generate trait names
     let if_trait_name = env
-        .register_trait_name(&format!("{}If", IDENT_PREFIX))
+        .register_trait_name(&format!("{}If_", IDENT_PREFIX))
         .expect("the trait name cannot proper prefix of existing trait names");
 
     let assign_trait_names: HashMap<_, _> = mutable_quantifiers
         .keys()
         .map(|ident| {
             let trait_name = env
-                .register_trait_name(&format!("{}IfAssign", IDENT_PREFIX))
+                .register_trait_name(&format!("{}IfAssign_", IDENT_PREFIX))
                 .expect("please report bug: accidentally using a proper prefix");
             (ident, trait_name)
         })
@@ -86,6 +86,7 @@ where
 
     let if_trait_item: ItemTrait = {
         syn::parse2(quote! {
+            #[allow(non_snake_case)]
             pub trait #if_trait_name < #(#generics,)* #cond_generic > {
                 type Output;
             }
@@ -96,6 +97,7 @@ where
         .values()
         .map(|trait_name| {
             syn::parse2(quote! {
+                #[allow(non_snake_case)]
                 pub trait #trait_name < #(#generics,)* #cond_generic> {
                     type Output;
                 }

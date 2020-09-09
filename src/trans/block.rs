@@ -57,7 +57,7 @@ where
 
                     // insert trait bounds
                     if let Some(ty) = ty_opt {
-                        let bounded_ty = ty.parse_type_var(scope)?;
+                        let bounded_ty = ident.parse_type_var(scope)?;
                         let bounds = ty.parse_type_param_bounds_var(scope)?;
                         let predicates =
                             WherePredicateVar::Type(PredicateTypeVar { bounded_ty, bounds });

@@ -46,7 +46,6 @@ pub fn translate_items(items: &[Item]) -> syn::Result<TokenStream> {
                     let ItemFn {
                         sig, block, vis, ..
                     } = fn_;
-                    dbg!();
                     translate_fn(vis, sig, block, None)?
                 }
                 Item::Struct(struct_) => translate_struct(&struct_)?,
@@ -59,7 +58,6 @@ pub fn translate_items(items: &[Item]) -> syn::Result<TokenStream> {
         })
         .try_collect()?;
 
-    dbg!();
     let expanded = quote! {
         #(#tokens_vec)*
     };

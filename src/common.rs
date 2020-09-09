@@ -3,7 +3,7 @@ pub use indexmap::{IndexMap, IndexSet};
 pub use itertools::Itertools;
 pub use proc_macro2::{Span, TokenStream};
 pub use quote::{format_ident, quote, quote_spanned, ToTokens};
-pub use radix_trie::{Trie, TrieKey};
+pub use radix_trie::{Trie, TrieCommon, TrieKey};
 pub use std::{
     borrow::{Borrow, BorrowMut, Cow},
     cell::{Cell, Ref, RefCell, RefMut},
@@ -35,4 +35,4 @@ pub use syn::{
     TypeTuple, UnOp, Variant, Visibility, WherePredicate,
 };
 
-pub const IDENT_PREFIX: &str = "__TYP__";
+pub const IDENT_PREFIX: &str = "__TYP_";
