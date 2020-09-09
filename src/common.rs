@@ -21,18 +21,19 @@ pub use std::{
 };
 pub use syn::{
     parse::{Parse, ParseStream},
+    parse_macro_input,
     punctuated::Punctuated,
     spanned::Spanned,
     token,
     visit_mut::VisitMut,
     Arm, AttrStyle, Attribute, BinOp, Block, ConstParam, Error, Expr, ExprAssign, ExprBinary,
-    ExprBlock, ExprCall, ExprIf, ExprLet, ExprLit, ExprMatch, ExprPath, ExprTuple, ExprUnary,
-    Field, Fields, FnArg, GenericArgument, GenericParam, Ident, ImplItem, ImplItemMethod,
-    ImplItemType, Item, ItemEnum, ItemFn, ItemImpl, ItemMod, ItemStruct, ItemTrait, LifetimeDef,
-    Lit, LitBool, LitInt, Local, Pat, PatIdent, PatPath, PatTuple, PatType, Path, PathArguments,
-    PathSegment, PredicateType, QSelf, Receiver, ReturnType, Signature, Stmt, Token, TraitBound,
-    TraitBoundModifier, Type, TypeParam, TypeParamBound, TypeParen, TypePath, TypeTraitObject,
-    TypeTuple, UnOp, Variant, Visibility, WherePredicate,
+    ExprBlock, ExprCall, ExprIf, ExprLet, ExprLit, ExprMatch, ExprPath, ExprReturn, ExprTuple,
+    ExprUnary, Field, Fields, FnArg, GenericArgument, GenericParam, Ident, ImplItem,
+    ImplItemMethod, ImplItemType, Item, ItemEnum, ItemFn, ItemImpl, ItemMod, ItemStruct, ItemTrait,
+    LifetimeDef, Lit, LitBool, LitInt, Local, Pat, PatIdent, PatPath, PatTuple, PatType, Path,
+    PathArguments, PathSegment, PredicateType, QSelf, Receiver, ReturnType, Signature, Stmt, Token,
+    TraitBound, TraitBoundModifier, Type, TypeParam, TypeParamBound, TypeParen, TypePath,
+    TypeTraitObject, TypeTuple, UnOp, Variant, Visibility, WherePredicate,
 };
 
 pub const IDENT_PREFIX: &str = "__TYP_";
