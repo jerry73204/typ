@@ -1,6 +1,6 @@
 use super::common::*;
 
-typ::typ! {
+typ! {
     fn IfTest1<Cond>(Cond: _) {
         if Cond {
             1

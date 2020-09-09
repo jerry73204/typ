@@ -14,7 +14,7 @@ mod animal_test {
     pub struct Mouse;
     impl Animal for Mouse {}
 
-    typ::typ! {
+    typ! {
         fn MatchTest1<A>(A: Animal) -> typenum::Unsigned
         {
             match A {
@@ -46,8 +46,8 @@ mod recursive_append_list_test {
     where
         Tail: List,
     {
-        head: Head,
-        tail: Tail,
+        _head: Head,
+        _tail: Tail,
     }
 
     impl<Head, Tail> List for Cons<Head, Tail> where Tail: List {}
@@ -58,7 +58,7 @@ mod recursive_append_list_test {
 
     // append type operator
 
-    typ::typ! {
+    typ! {
         fn Append<input, value>(input: List, value: _) -> List {
             match input {
                 #[generics(head, tail: List)]

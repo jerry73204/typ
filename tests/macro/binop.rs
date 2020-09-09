@@ -1,6 +1,6 @@
 use super::common::*;
 
-typ::typ! {
+typ! {
     fn True() -> typenum::Bit {
         true
     }

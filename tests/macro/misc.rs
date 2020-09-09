@@ -1,6 +1,6 @@
 use crate::common::*;
 
-typ::typ! {
+typ! {
     fn Empty() {}
 }
 
