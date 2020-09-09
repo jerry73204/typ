@@ -1,3 +1,5 @@
+pub use typ::{typ, tyuint};
+
 pub trait AssertSame<Lhs, Rhs> {
     type Output;
 }
