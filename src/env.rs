@@ -1,7 +1,7 @@
 use crate::{
     common::*,
     utils::{IntoRc, Shared, SharedCell},
-    var::{PredicateTypeVar, TypeParamBoundVar, TypeVar, Var, WherePredicateVar},
+    var::{PredicateTypeVar, TypeParamBoundVar, TypeVar, WherePredicateVar},
 };
 
 pub use env::*;

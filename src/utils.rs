@@ -104,66 +104,6 @@ impl<T> Hash for SharedCell<T> {
     }
 }
 
-pub trait VecTranspose<T> {
-    fn transpose(&self) -> Vec<Vec<T>>
-    where
-        T: Clone;
-    fn transpose_inplace(self) -> Vec<Vec<T>>
-    where
-        T: Clone;
-}
-
-impl<T> VecTranspose<T> for Vec<Vec<T>> {
-    fn transpose(&self) -> Vec<Vec<T>>
-    where
-        T: Clone,
-    {
-        if self.is_empty() {
-            return vec![];
-        }
-
-        let n_rows = self.len();
-        let n_cols = self[0].len();
-
-        (0..n_cols)
-            .map(|col_idx| {
-                (0..n_rows)
-                    .map(|row_idx| self[row_idx][col_idx].clone())
-                    .collect()
-            })
-            .collect()
-    }
-
-    fn transpose_inplace(self) -> Vec<Vec<T>>
-    where
-        T: Clone,
-    {
-        if self.is_empty() {
-            return self;
-        }
-
-        let n_rows = self.len();
-        let n_cols = self[0].len();
-        self.iter().for_each(|row| assert_eq!(row.len(), n_cols));
-
-        let mut buffer = vec![
-            unsafe {
-                let mut v = Vec::with_capacity(n_rows);
-                v.set_len(n_rows);
-                v
-            };
-            n_cols
-        ];
-        self.into_iter().enumerate().for_each(|(row_index, row)| {
-            row.into_iter().enumerate().for_each(|(col_index, value)| {
-                buffer[col_index][row_index] = value;
-            })
-        });
-
-        buffer
-    }
-}
-
 pub trait IntoRc {
     type Inner;
 

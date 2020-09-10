@@ -2,8 +2,8 @@ use super::*;
 
 pub fn translate_lit_expr(
     expr: &ExprLit,
-    scope: &mut Env,
-    items: &mut Vec<Item>,
+    _env: &mut Env,
+    _items: &mut Vec<Item>,
 ) -> syn::Result<TypeVar> {
     let ExprLit { lit, .. } = expr;
 

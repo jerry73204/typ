@@ -69,10 +69,10 @@ pub fn translate_fn(
     };
 
     // translate function generics to initial quantifiers
-    let (input_type_params, input_lifetimes, input_const_params) = {
+    let (_input_type_params, _input_lifetimes, _input_const_params) = {
         // create initial quantifiers
         for param in generics.params.iter() {
-            if let GenericParam::Type(TypeParam { ident, bounds, .. }) = param {
+            if let GenericParam::Type(TypeParam { ident, .. }) = param {
                 env.insert_free_quantifier(ident.to_owned());
             }
         }

@@ -1,7 +1,7 @@
 use crate::{
     common::*,
     env::{Env, Variable},
-    utils::{Shared, VecTranspose},
+    utils::Shared,
 };
 
 // parse without substitutions
@@ -754,42 +754,6 @@ impl Subsitution for TypeParamBoundVar {
 }
 
 // types
-
-#[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub enum Var {
-    Type(TypeVar),
-    Path(PathVar),
-}
-
-impl Var {
-    pub fn into_type(self) -> Option<TypeVar> {
-        match self {
-            Self::Type(ty) => Some(ty),
-            _ => None,
-        }
-    }
-}
-
-impl Var {
-    pub fn into_path(self) -> Option<PathVar> {
-        match self {
-            Self::Path(path) => Some(path),
-            _ => None,
-        }
-    }
-}
-
-impl From<TypeVar> for Var {
-    fn from(from: TypeVar) -> Self {
-        Self::Type(from)
-    }
-}
-
-impl From<PathVar> for Var {
-    fn from(from: PathVar) -> Self {
-        Self::Path(from)
-    }
-}
 
 #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub enum TypeVar {
