@@ -45,7 +45,7 @@ pub fn translate_items(items: &[Item]) -> syn::Result<TokenStream> {
                     let ItemFn {
                         sig, block, vis, ..
                     } = fn_;
-                    translate_fn(vis, sig, block, None)?
+                    translate_fn(vis, sig, block, None, None)?
                 }
                 Item::Struct(struct_) => translate_struct(&struct_)?,
                 Item::Impl(impl_) => translate_impl(&impl_)?,
