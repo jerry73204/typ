@@ -75,3 +75,17 @@ impl Parse for GenericsAttr {
         Ok(Self { params })
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct CaptureAttr {
+    pub params: Punctuated<Ident, syn::token::Comma>,
+}
+
+impl Parse for CaptureAttr {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let content;
+        syn::parenthesized!(content in input);
+        let params = Punctuated::parse_terminated(&content)?;
+        Ok(Self { params })
+    }
+}

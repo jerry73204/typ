@@ -5,6 +5,7 @@ pub fn translate_fn(
     sig: &Signature,
     block: &Block,
     self_ty: Option<&Path>,
+    impl_generics: Option<&Generics>,
 ) -> syn::Result<TokenStream> {
     let Signature {
         ident: fn_name,

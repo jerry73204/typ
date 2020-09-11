@@ -1,5 +1,10 @@
 use super::*;
 
+struct ArmAttributes<'a> {
+    pub generics_attr: Option<&'a Attribute>,
+    pub capture_attr: Option<&'a Attribute>,
+}
+
 pub fn translate_match_expr(
     match_: &ExprMatch,
     env: &mut Env,
@@ -81,7 +86,12 @@ where
                     let mut branched_env = env.branch();
 
                     // parse attributes
-                    let generics_attr = unpack_pat_attr(attrs)?;
+                    let ArmAttributes {
+                        generics_attr,
+                        capture_attr,
+                    } = unpack_pat_attr(attrs)?;
+
+                    // TODO: process capture_attr
 
                     // insert new free quantifiers and predicates
                     let extra_free_quantifiers = match generics_attr {
@@ -279,8 +289,9 @@ where
     Ok(output)
 }
 
-fn unpack_pat_attr(attrs: &[Attribute]) -> syn::Result<Option<&Attribute>> {
+fn unpack_pat_attr(attrs: &[Attribute]) -> syn::Result<ArmAttributes<'_>> {
     let mut generics_attr = None;
+    let mut capture_attr = None;
     for attr in attrs.iter() {
         let Attribute { style, path, .. } = attr;
 
@@ -296,6 +307,15 @@ fn unpack_pat_attr(attrs: &[Attribute]) -> syn::Result<Option<&Attribute>> {
                     }
                     None => generics_attr = Some(attr),
                 },
+                "capture" => match capture_attr {
+                    Some(_) => {
+                        return Err(Error::new(
+                            path.span(),
+                            "the capture attribute is defined more than once",
+                        ));
+                    }
+                    None => capture_attr = Some(attr),
+                },
                 _ => return Err(Error::new(path.span(), "unsupported attribute")),
             },
             (AttrStyle::Outer, None) => {
@@ -306,5 +326,8 @@ fn unpack_pat_attr(attrs: &[Attribute]) -> syn::Result<Option<&Attribute>> {
             }
         }
     }
-    Ok(generics_attr)
+    Ok(ArmAttributes {
+        generics_attr,
+        capture_attr,
+    })
 }
