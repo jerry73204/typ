@@ -1,0 +1,57 @@
+warning: unused variable: `impl_generics`
+ --> $DIR/fn_.rs:8:5
+  |
+8 |     impl_generics: Option<&Generics>,
+  |     ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_impl_generics`
+  |
+  = note: `#[warn(unused_variables)]` on by default
+
+warning: 1 warning emitted
+
+error[E0271]: type mismatch resolving `<() as __TYP_mod_Compare::__TYP_MatchArm_0<Alice<typenum::B0>, Alice<typenum::B1>, Alice<typenum::B0>>>::Output == typenum::B1`
+  --> $DIR/fail_match_attribute.rs:37:25
+   |
+37 |     let _: AssertSameOp<CompareOp<Alice<B0>, Alice<B1>>, ()> = ();
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected struct `typenum::B0`, found struct `typenum::B1`
+
+error[E0271]: type mismatch resolving `<() as __TYP_mod_Compare::__TYP_MatchArm_0<Alice<typenum::B0>, Bob<typenum::B1>, Alice<typenum::B0>>>::Output == typenum::B1`
+  --> $DIR/fail_match_attribute.rs:38:25
+   |
+38 |     let _: AssertSameOp<CompareOp<Alice<B0>, Bob<B1>>, ()> = ();
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected struct `typenum::B0`, found struct `typenum::B1`
+
+error[E0271]: type mismatch resolving `<() as __TYP_mod_Compare::__TYP_MatchArm_0<Bob<typenum::B0>, Alice<typenum::B1>, Bob<typenum::B0>>>::Output == typenum::B1`
+  --> $DIR/fail_match_attribute.rs:39:25
+   |
+39 |     let _: AssertSameOp<CompareOp<Bob<B0>, Alice<B1>>, ()> = ();
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected struct `typenum::B0`, found struct `typenum::B1`
+
+error[E0271]: type mismatch resolving `<() as __TYP_mod_Compare::__TYP_MatchArm_0<Bob<typenum::B0>, Bob<typenum::B1>, Bob<typenum::B0>>>::Output == typenum::B1`
+  --> $DIR/fail_match_attribute.rs:40:25
+   |
+40 |     let _: AssertSameOp<CompareOp<Bob<B0>, Bob<B1>>, ()> = ();
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected struct `typenum::B0`, found struct `typenum::B1`
+
+error[E0271]: type mismatch resolving `<() as __TYP_mod_Compare::__TYP_MatchArm_0<Alice<typenum::B1>, Alice<typenum::B0>, Alice<typenum::B1>>>::Output == typenum::B0`
+  --> $DIR/fail_match_attribute.rs:41:25
+   |
+41 |     let _: AssertSameOp<CompareOp<Alice<B1>, Alice<B0>>, ()> = ();
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected struct `typenum::B1`, found struct `typenum::B0`
+
+error[E0271]: type mismatch resolving `<() as __TYP_mod_Compare::__TYP_MatchArm_0<Alice<typenum::B1>, Bob<typenum::B0>, Alice<typenum::B1>>>::Output == typenum::B0`
+  --> $DIR/fail_match_attribute.rs:42:25
+   |
+42 |     let _: AssertSameOp<CompareOp<Alice<B1>, Bob<B0>>, ()> = ();
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected struct `typenum::B1`, found struct `typenum::B0`
+
+error[E0271]: type mismatch resolving `<() as __TYP_mod_Compare::__TYP_MatchArm_0<Bob<typenum::B1>, Alice<typenum::B0>, Bob<typenum::B1>>>::Output == typenum::B0`
+  --> $DIR/fail_match_attribute.rs:43:25
+   |
+43 |     let _: AssertSameOp<CompareOp<Bob<B1>, Alice<B0>>, ()> = ();
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected struct `typenum::B1`, found struct `typenum::B0`
+
+error[E0271]: type mismatch resolving `<() as __TYP_mod_Compare::__TYP_MatchArm_0<Bob<typenum::B1>, Bob<typenum::B0>, Bob<typenum::B1>>>::Output == typenum::B0`
+  --> $DIR/fail_match_attribute.rs:44:25
+   |
+44 |     let _: AssertSameOp<CompareOp<Bob<B1>, Bob<B0>>, ()> = ();
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected struct `typenum::B1`, found struct `typenum::B0`

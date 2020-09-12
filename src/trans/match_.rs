@@ -1,8 +1,8 @@
 use super::*;
 
-struct ArmAttributes<'a> {
-    pub generics_attr: Option<&'a Attribute>,
-    pub capture_attr: Option<&'a Attribute>,
+struct ArmAttributes {
+    pub generics_attr: Option<GenericsAttr>,
+    pub capture_attr: Option<CaptureAttr>,
 }
 
 pub fn translate_match_expr(
@@ -15,10 +15,7 @@ where
     let ExprMatch { expr, arms, .. } = match_;
 
     // parse matched expression
-    let pattern = match &**expr {
-        Expr::Path(path) => translate_path_expr(&path, env, items)?,
-        _ => return Err(Error::new(expr.span(), "not a type")),
-    };
+    let pattern = translate_expr(&**expr, env, items)?;
 
     // save quantifiers (after matched expression)
     let mutable_quantifiers = env.mutable_quantifiers();
@@ -91,13 +88,10 @@ where
                         capture_attr,
                     } = unpack_pat_attr(attrs)?;
 
-                    // TODO: process capture_attr
-
                     // insert new free quantifiers and predicates
-                    let extra_free_quantifiers = match generics_attr {
-                        Some(attr) => {
-                            let GenericsAttr { params } = syn::parse2(attr.tokens.to_owned())?;
-                            let extra_free_quantifiers: IndexSet<_> = params
+                    let extra_free_quantifiers = match &generics_attr {
+                        Some(GenericsAttr { params }) => {
+                            let free_quantifiers: IndexSet<_> = params
                                 .iter()
                                 .map(|param| -> syn::Result<_> {
                                     let SimpleTypeParam { ident, .. } = param;
@@ -108,12 +102,12 @@ where
                                     Ok(var)
                                 })
                                 .try_collect()?;
-                            extra_free_quantifiers
+                            free_quantifiers
                         }
                         None => IndexSet::new(),
                     };
 
-                    // generate free quantifier substitutions
+                    // generate substitutions for free variables
                     let substitution: IndexMap<_, _> = branched_env
                         .free_quantifiers()
                         .iter()
@@ -123,6 +117,8 @@ where
                             (var, format_ident!("{}GENERIC_{}", IDENT_PREFIX, index))
                         })
                         .collect();
+
+                    // generate generic identifiers
                     let input_generics: Vec<_> = substitution
                         .iter()
                         .filter_map(|(var, generic)| {
@@ -136,9 +132,39 @@ where
                     let all_generics: Vec<_> = substitution.values().collect();
 
                     // parse body
-                    let target = pat
-                        .parse_type_var(&branched_env)?
-                        .substitute(&branched_env, &substitution);
+                    let target = {
+                        // list in-place free and captured variables
+                        let mut variables = HashMap::new();
+
+                        if let Some(CaptureAttr { params }) = capture_attr {
+                            let vars: Vec<_> = params
+                                .iter()
+                                .map(|ident| {
+                                    branched_env
+                                        .get_variable(ident)
+                                        .map(|var| (ident.to_owned(), var))
+                                        .ok_or_else(|| {
+                                            Error::new(ident.span(), "the variable is not defined")
+                                        })
+                                })
+                                .try_collect()?;
+                            variables.extend(vars);
+                        };
+
+                        if let Some(GenericsAttr { params }) = generics_attr {
+                            let iter = params.iter().map(|SimpleTypeParam { ident, .. }| {
+                                branched_env
+                                    .get_variable(ident)
+                                    .map(|var| (ident.to_owned(), var))
+                                    .unwrap()
+                            });
+                            variables.extend(iter);
+                        };
+
+                        // parse target
+                        parse_pattern::parse_type_pattern_from_pat(pat, &variables)?
+                            .substitute(&branched_env, &substitution)
+                    };
                     let body_value = translate_expr(body, &mut branched_env, items)?
                         .substitute(&branched_env, &substitution);
                     let predicates: Vec<_> = branched_env
@@ -289,9 +315,11 @@ where
     Ok(output)
 }
 
-fn unpack_pat_attr(attrs: &[Attribute]) -> syn::Result<ArmAttributes<'_>> {
+fn unpack_pat_attr(attrs: &[Attribute]) -> syn::Result<ArmAttributes> {
     let mut generics_attr = None;
     let mut capture_attr = None;
+
+    // check attributes one by one
     for attr in attrs.iter() {
         let Attribute { style, path, .. } = attr;
 
@@ -326,8 +354,209 @@ fn unpack_pat_attr(attrs: &[Attribute]) -> syn::Result<ArmAttributes<'_>> {
             }
         }
     }
+
+    // parse
+    let generics_attr: Option<GenericsAttr> = generics_attr
+        .map(|attr| syn::parse2(attr.tokens.to_owned()))
+        .transpose()?;
+    let capture_attr: Option<CaptureAttr> = capture_attr
+        .map(|attr| syn::parse2(attr.tokens.to_owned()))
+        .transpose()?;
+
+    // sanity check
+    match (&generics_attr, &capture_attr) {
+        (Some(generics_attr), Some(capture_attr)) => {
+            let generic_idents: HashSet<_> = generics_attr
+                .params
+                .iter()
+                .map(|param| &param.ident)
+                .collect();
+            for capture_ident in capture_attr.params.iter() {
+                if let Some(generic_ident) = generic_idents.get(capture_ident) {
+                    let mut err = Error::new(
+                        capture_ident.span(),
+                        "cannot capture a variable already in generics list",
+                    );
+                    err.combine(Error::new(
+                        generic_ident.span(),
+                        "the name is declared as a generic here",
+                    ));
+                    return Err(err);
+                }
+            }
+        }
+        _ => (),
+    }
+
     Ok(ArmAttributes {
         generics_attr,
         capture_attr,
     })
+}
+
+mod parse_pattern {
+    use super::*;
+
+    pub fn parse_type_pattern_from_pat(
+        pat: &Pat,
+        captured: &HashMap<Ident, Shared<Variable>>,
+    ) -> syn::Result<TypeVar> {
+        match pat {
+            Pat::Ident(pat_ident) => {
+                // sanity check
+                let PatIdent {
+                    ident,
+                    by_ref,
+                    mutability,
+                    subpat,
+                    ..
+                } = pat_ident;
+
+                if let Some(by_ref) = by_ref {
+                    return Err(Error::new(by_ref.span(), "ref keyword is not supported"));
+                }
+
+                if let Some(mutability) = mutability {
+                    return Err(Error::new(
+                        mutability.span(),
+                        "mut keyword is not supported",
+                    ));
+                }
+
+                if let Some(_) = subpat {
+                    return Err(Error::new(pat_ident.span(), "subpattern is not supported"));
+                }
+
+                parse_type_pattern_from_ident(ident, captured)
+            }
+            Pat::Path(PatPath { qself, path, .. }) => {
+                let qself = match qself {
+                    Some(QSelf { ty, position, .. }) => {
+                        let ty = parse_type_pattern(ty, captured)?;
+                        Some(QSelfVar {
+                            ty: Box::new(ty),
+                            position: *position,
+                        })
+                    }
+                    None => None,
+                };
+                let path = parse_path_pattern(path, captured)?;
+                Ok(TypeVar::Path(TypePathVar { qself, path }))
+            }
+            Pat::Tuple(PatTuple { elems, .. }) => {
+                let elems: Vec<_> = elems
+                    .iter()
+                    .map(|elem| parse_type_pattern_from_pat(elem, captured))
+                    .try_collect()?;
+                Ok(TypeVar::Tuple(TypeTupleVar { elems }))
+            }
+            _ => Err(Error::new(pat.span(), "not a type")),
+        }
+    }
+
+    pub fn parse_type_pattern(
+        type_: &Type,
+        captured: &HashMap<Ident, Shared<Variable>>,
+    ) -> syn::Result<TypeVar> {
+        let ty = match type_ {
+            Type::Path(TypePath { qself, path }) => match (qself, path.get_ident()) {
+                (Some(QSelf { ty, position, .. }), _) => {
+                    let ty = parse_type_pattern(ty, captured)?;
+                    let path = parse_path_pattern(path, captured)?;
+                    TypeVar::Path(TypePathVar {
+                        qself: Some(QSelfVar {
+                            ty: Box::new(ty),
+                            position: *position,
+                        }),
+                        path,
+                    })
+                }
+                (None, Some(ident)) => match captured.get(ident) {
+                    Some(var) => TypeVar::Var(var.to_owned()),
+                    None => {
+                        let path = parse_path_pattern(path, captured)?;
+                        TypeVar::Path(TypePathVar { qself: None, path })
+                    }
+                },
+                (None, None) => {
+                    let path = parse_path_pattern(path, captured)?;
+                    TypeVar::Path(TypePathVar { qself: None, path })
+                }
+            },
+            Type::Tuple(TypeTuple { elems, .. }) => {
+                let elems: Vec<_> = elems
+                    .iter()
+                    .map(|elem| parse_type_pattern(elem, captured))
+                    .try_collect()?;
+                TypeVar::Tuple(TypeTupleVar { elems })
+            }
+            Type::Paren(TypeParen { elem, .. }) => parse_type_pattern(elem, captured)?,
+            _ => return Err(Error::new(type_.span(), "unsupported type variant")),
+        };
+        Ok(ty)
+    }
+
+    pub fn parse_type_pattern_from_ident(
+        ident: &Ident,
+        captured: &HashMap<Ident, Shared<Variable>>,
+    ) -> syn::Result<TypeVar> {
+        match captured.get(ident) {
+            Some(var) => Ok(TypeVar::Var(var.to_owned())),
+            None => Ok(TypeVar::Path(TypePathVar {
+                qself: None,
+                path: PathVar {
+                    segments: vec![SegmentVar {
+                        ident: ident.to_owned(),
+                        arguments: PathArgumentsVar::None,
+                    }],
+                },
+            })),
+        }
+    }
+
+    pub fn parse_path_pattern(
+        path: &Path,
+        captured: &HashMap<Ident, Shared<Variable>>,
+    ) -> syn::Result<PathVar> {
+        let Path { segments, .. } = path;
+        let segments: Vec<_> = segments
+            .iter()
+            .map(|segment| parse_segment_pattern(segment, captured))
+            .try_collect()?;
+        Ok(PathVar { segments })
+    }
+
+    pub fn parse_segment_pattern(
+        segment: &PathSegment,
+        captured: &HashMap<Ident, Shared<Variable>>,
+    ) -> syn::Result<SegmentVar> {
+        let PathSegment { ident, arguments } = segment;
+        let arguments = match arguments {
+            PathArguments::None => PathArgumentsVar::None,
+            PathArguments::AngleBracketed(args) => {
+                let args = args
+                    .args
+                    .iter()
+                    .map(|arg| match arg {
+                        GenericArgument::Type(ty) => parse_type_pattern(ty, captured),
+                        _ => Err(Error::new(arg.span(), "unsupported generic variant")),
+                    })
+                    .try_collect()?;
+                PathArgumentsVar::AngleBracketed(args)
+            }
+            PathArguments::Parenthesized(args) => {
+                let inputs = args
+                    .inputs
+                    .iter()
+                    .map(|ty| parse_type_pattern(ty, captured))
+                    .try_collect()?;
+                PathArgumentsVar::Parenthesized(inputs)
+            }
+        };
+
+        Ok(SegmentVar {
+            ident: ident.to_owned(),
+            arguments,
+        })
+    }
 }

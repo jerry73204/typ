@@ -89,3 +89,48 @@ mod recursive_append_list_test {
     }
 
 }
+
+mod attributes_test {
+    use super::*;
+
+    struct Alice<X>(X);
+    struct Bob<X>(X);
+
+    typ! {
+        fn Compare<lhs, rhs>(lhs: _, rhs: _) {
+            let lval = match lhs {
+                #[generics(val)]
+                Alice::<val> => val,
+                #[generics(val)]
+                Bob::<val> => val,
+            };
+
+            match rhs {
+                #[capture(lval)]
+                Alice::<lval> => (),
+                #[capture(lval)]
+                Bob::<lval> => (),
+            }
+        }
+    }
+
+    #[test]
+    fn test() {
+        use typenum::consts::*;
+
+        let _: AssertSameOp<CompareOp<Alice<B0>, Alice<B0>>, ()> = ();
+        let _: AssertSameOp<CompareOp<Alice<B0>, Bob<B0>>, ()> = ();
+        let _: AssertSameOp<CompareOp<Bob<B0>, Alice<B0>>, ()> = ();
+        let _: AssertSameOp<CompareOp<Bob<B0>, Bob<B0>>, ()> = ();
+        let _: AssertSameOp<CompareOp<Alice<B1>, Alice<B1>>, ()> = ();
+        let _: AssertSameOp<CompareOp<Alice<B1>, Bob<B1>>, ()> = ();
+        let _: AssertSameOp<CompareOp<Bob<B1>, Alice<B1>>, ()> = ();
+        let _: AssertSameOp<CompareOp<Bob<B1>, Bob<B1>>, ()> = ();
+    }
+}
+
+#[test]
+fn compile_fail_test() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/macro/fail_match_attribute.rs");
+}

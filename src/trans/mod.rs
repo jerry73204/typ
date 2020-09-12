@@ -13,8 +13,9 @@ mod unary;
 
 pub use crate::{
     common::*,
-    env::Env,
-    parse::{GenericsAttr, SimpleTypeParam},
+    env::{Env, Variable},
+    parse::{CaptureAttr, GenericsAttr, SimpleTypeParam},
+    utils::Shared,
     var::{
         ParsePathVar, ParsePureType, ParsePureWherePredicate, ParseTypeParamBoundsVar,
         ParseTypeVar, ParseWherePredicateVar, PathArgumentsVar, PathVar, PredicateTypeVar,
