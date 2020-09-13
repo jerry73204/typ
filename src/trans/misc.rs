@@ -33,7 +33,10 @@ where
     let index = translate_expr(index, env, items)?;
 
     let trait_ = {
-        let mut path: PathVar = syn::parse2(quote! { core::ops::Index }).unwrap();
+        let mut path: PathVar = syn::parse2::<Path>(quote! { core::ops::Index })
+            .unwrap()
+            .parse_pure_path(&mut vec![])
+            .unwrap();
         path.segments.last_mut().unwrap().arguments = PathArgumentsVar::AngleBracketed(vec![index]);
         path
     };
@@ -141,7 +144,10 @@ where
     // insert predicates
     let (output, predicate) = {
         // construct the output type
-        let bounded_ty: TypeVar = syn::parse2(quote! { () }).unwrap();
+        let bounded_ty: TypeVar = syn::parse2::<Type>(quote! { () })
+            .unwrap()
+            .parse_pure_type(&mut vec![])
+            .unwrap();
         let output = {
             let position = trait_path.segments.len();
             let path = {

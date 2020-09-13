@@ -17,10 +17,10 @@ pub use crate::{
     parse::{CaptureAttr, GenericsAttr, SimpleTypeParam},
     utils::Shared,
     var::{
-        ParsePathVar, ParsePureType, ParsePureWherePredicate, ParseTypeParamBoundsVar,
-        ParseTypeVar, ParseWherePredicateVar, PathArgumentsVar, PathVar, PredicateTypeVar,
-        QSelfVar, SegmentVar, Subsitution, TraitBoundModifierVar, TraitBoundVar, TypeParamBoundVar,
-        TypePathVar, TypeTupleVar, TypeVar, WherePredicateVar,
+        ParsePathVar, ParsePurePath, ParsePureType, ParsePureWherePredicate,
+        ParseTypeParamBoundsVar, ParseTypeVar, ParseWherePredicateVar, PathArgumentsVar, PathVar,
+        PredicateTypeVar, QSelfVar, SegmentVar, Subsitution, TraitBoundModifierVar, TraitBoundVar,
+        TypeParamBoundVar, TypePathVar, TypeTupleVar, TypeVar, WherePredicateVar,
     },
 };
 pub use assign::*;

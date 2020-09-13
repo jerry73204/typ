@@ -80,13 +80,13 @@ pub fn translate_fn(
 
         // insert trait bounds
         for param in generics.params.iter() {
-            let predicate = param.parse_where_predicate_var(&env)?;
+            let predicate = param.parse_where_predicate_var(&mut env)?;
             env.insert_predicate(predicate);
         }
 
         if let Some(where_clause) = &generics.where_clause {
             for predicate in where_clause.predicates.iter() {
-                let predicate = predicate.parse_where_predicate_var(&env)?;
+                let predicate = predicate.parse_where_predicate_var(&mut env)?;
                 env.insert_predicate(predicate);
             }
         }
@@ -137,7 +137,7 @@ pub fn translate_fn(
         // insert trait bounds
         for arg in inputs.iter() {
             if let FnArg::Typed(pat_type) = arg {
-                let predicate = pat_type.parse_where_predicate_var(&env)?;
+                let predicate = pat_type.parse_where_predicate_var(&mut env)?;
                 env.insert_predicate(predicate);
             }
         }
@@ -148,7 +148,7 @@ pub fn translate_fn(
                 FnArg::Typed(pat_type) => Some(pat_type),
                 FnArg::Receiver(_) => None,
             })
-            .map(|PatType { pat, .. }| pat.parse_type_var(&env))
+            .map(|PatType { pat, .. }| pat.parse_type_var(&mut env))
             .try_collect()?;
 
         fn_args
@@ -158,7 +158,7 @@ pub fn translate_fn(
     let output_bounds = match output {
         ReturnType::Default => None,
         ReturnType::Type(_, ty) => {
-            let bounds = ty.parse_type_param_bounds_var(&env)?;
+            let bounds = ty.parse_type_param_bounds_var(&mut env)?;
             Some(bounds)
         }
     };
@@ -198,7 +198,10 @@ pub fn translate_fn(
             .collect();
         let output_predicate = output_bounds.as_ref().map(|bounds| {
             WherePredicateVar::Type(PredicateTypeVar {
-                bounded_ty: syn::parse2(quote! { Self::Output }).unwrap(),
+                bounded_ty: syn::parse2::<Type>(quote! { Self::Output })
+                    .unwrap()
+                    .parse_pure_type(&mut vec![])
+                    .unwrap(),
                 bounds: bounds.to_owned(),
             })
             .substitute(&env, &subsitution)

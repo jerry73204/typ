@@ -35,7 +35,10 @@ pub fn translate_lit_expr(
         },
         _ => return Err(Error::new(lit.span(), "unsupported literal")),
     };
-    let lit_ty: TypeVar = syn::parse2(lit_tokens)?;
+    let lit_ty: TypeVar = syn::parse2::<Type>(lit_tokens)
+        .unwrap()
+        .parse_pure_type(&mut vec![])
+        .unwrap();
 
     Ok(lit_ty)
 }

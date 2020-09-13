@@ -10,7 +10,10 @@ pub fn translate_unary_expr(
     let output = match op {
         UnOp::Neg(_) => {
             let (output, predicate) = {
-                let trait_: PathVar = syn::parse2(quote! { core::ops::Neg }).unwrap();
+                let trait_: PathVar = syn::parse2::<Path>(quote! { core::ops::Neg })
+                    .unwrap()
+                    .parse_pure_path(&mut vec![])
+                    .unwrap();
                 let path = {
                     let mut path = trait_.clone();
                     path.segments.push(SegmentVar {
@@ -42,7 +45,10 @@ pub fn translate_unary_expr(
         }
         UnOp::Not(_) => {
             let (output, predicate) = {
-                let trait_: PathVar = syn::parse2(quote! { core::ops::Not }).unwrap();
+                let trait_: PathVar = syn::parse2::<Path>(quote! { core::ops::Not })
+                    .unwrap()
+                    .parse_pure_path(&mut vec![])
+                    .unwrap();
                 let path = {
                     let mut path = trait_.clone();
                     path.segments.push(SegmentVar {
@@ -74,7 +80,10 @@ pub fn translate_unary_expr(
         }
         UnOp::Deref(_) => {
             let (output, predicate) = {
-                let trait_: PathVar = syn::parse2(quote! { core::ops::Deref }).unwrap();
+                let trait_: PathVar = syn::parse2::<Path>(quote! { core::ops::Deref })
+                    .unwrap()
+                    .parse_pure_path(&mut vec![])
+                    .unwrap();
                 let path = {
                     let mut path = trait_.clone();
                     path.segments.push(SegmentVar {

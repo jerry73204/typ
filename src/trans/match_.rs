@@ -97,7 +97,7 @@ where
                                     let SimpleTypeParam { ident, .. } = param;
                                     let var = branched_env.insert_free_quantifier(ident.to_owned());
                                     let predicate =
-                                        param.parse_where_predicate_var(&branched_env)?;
+                                        param.parse_where_predicate_var(&mut branched_env)?;
                                     branched_env.insert_predicate(predicate);
                                     Ok(var)
                                 })
@@ -192,7 +192,7 @@ where
                         .keys()
                         .map(|ident| {
                             let trait_name = &assign_trait_names[ident];
-                            let value = &branched_env
+                            let value = branched_env
                                 .get_variable(ident)
                                 .expect("please report bug: the variable is missing")
                                 .value
@@ -251,7 +251,10 @@ where
             });
             path
         };
-        let bounded_ty: TypeVar = syn::parse2(quote! { () }).unwrap();
+        let bounded_ty: TypeVar = syn::parse2::<Type>(quote! { () })
+            .unwrap()
+            .parse_pure_type(&mut vec![])
+            .unwrap();
         let value = TypeVar::Path(TypePathVar {
             qself: Some(QSelfVar {
                 ty: Box::new(bounded_ty.clone()),
@@ -292,7 +295,10 @@ where
             });
             path
         };
-        let bounded_ty: TypeVar = syn::parse2(quote! { () }).unwrap();
+        let bounded_ty: TypeVar = syn::parse2::<Type>(quote! { () })
+            .unwrap()
+            .parse_pure_type(&mut vec![])
+            .unwrap();
         let output = TypeVar::Path(TypePathVar {
             qself: Some(QSelfVar {
                 ty: Box::new(bounded_ty.clone()),

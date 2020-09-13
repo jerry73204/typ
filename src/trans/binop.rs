@@ -68,7 +68,7 @@ fn std_bin_op(
     lhs: TypeVar,
     rhs: TypeVar,
 ) -> syn::Result<TypeVar> {
-    let trait_path: PathVar = syn::parse2(trait_tokens)?;
+    let trait_path = syn::parse2::<Path>(trait_tokens)?.parse_pure_path(&mut vec![])?;
 
     let (output, predicate) = {
         let trait_ = {
@@ -113,7 +113,7 @@ fn typenum_bin_op(
     lhs: TypeVar,
     rhs: TypeVar,
 ) -> syn::Result<TypeVar> {
-    let trait_path: PathVar = syn::parse2(trait_tokens)?;
+    let trait_path = syn::parse2::<Path>(trait_tokens)?.parse_pure_path(&mut vec![])?;
 
     let (output, apply_predicates, output_predicates) = {
         let trait_ = {
@@ -148,7 +148,10 @@ fn typenum_bin_op(
             bounded_ty: output.clone(),
             bounds: vec![TypeParamBoundVar::Trait(TraitBoundVar {
                 modifier: TraitBoundModifierVar::None,
-                path: syn::parse2(quote! { typenum::marker_traits::Bit }).unwrap(),
+                path: syn::parse2::<Path>(quote! { typenum::marker_traits::Bit })
+                    .unwrap()
+                    .parse_pure_path(&mut vec![])
+                    .unwrap(),
             })],
         });
         (output, apply_predicate, output_predicate)

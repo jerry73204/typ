@@ -46,13 +46,13 @@ impl Parse for SimpleTypeParam {
 }
 
 impl ParseWherePredicateVar for SimpleTypeParam {
-    fn parse_where_predicate_var(&self, scope: &Env) -> syn::Result<WherePredicateVar> {
+    fn parse_where_predicate_var(&self, env: &mut Env) -> syn::Result<WherePredicateVar> {
         let SimpleTypeParam { ident, bounds } = self;
 
-        let bounded_ty = ident.parse_type_var(scope)?;
+        let bounded_ty = ident.parse_type_var(env)?;
         let bounds = bounds
             .iter()
-            .map(|bound| bound.parse_type_param_bound_var(scope))
+            .map(|bound| bound.parse_type_param_bound_var(env))
             .try_collect()?;
 
         Ok(WherePredicateVar::Type(PredicateTypeVar {

@@ -82,5 +82,10 @@ where
         Ok(())
     })?;
 
-    Ok(output_ty.unwrap_or_else(|| syn::parse2(quote! { () }).unwrap()))
+    Ok(output_ty.unwrap_or_else(|| {
+        syn::parse2::<Type>(quote! { () })
+            .unwrap()
+            .parse_pure_type(&mut vec![])
+            .unwrap()
+    }))
 }

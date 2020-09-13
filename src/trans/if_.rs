@@ -18,7 +18,10 @@ where
     let condition = {
         let cond_ty = translate_expr(&*cond, env, items)?;
         let eq_trait: PathVar =
-            syn::parse2(quote! { typenum::type_operators::IsEqual<typenum::B1> })?;
+            syn::parse2::<Path>(quote! { typenum::type_operators::IsEqual<typenum::B1> })
+                .unwrap()
+                .parse_pure_path(&mut vec![])
+                .unwrap();
         let path = {
             let mut path = eq_trait.clone();
             path.segments.push(SegmentVar {
@@ -45,7 +48,10 @@ where
             bounded_ty: output.clone(),
             bounds: vec![TypeParamBoundVar::Trait(TraitBoundVar {
                 modifier: TraitBoundModifierVar::None,
-                path: syn::parse2(quote! { typenum::marker_traits::Bit }).unwrap(),
+                path: syn::parse2::<Path>(quote! { typenum::marker_traits::Bit })
+                    .unwrap()
+                    .parse_pure_path(&mut vec![])
+                    .unwrap(),
             })],
         });
 
@@ -338,7 +344,10 @@ where
             });
             path
         };
-        let bounded_ty: TypeVar = syn::parse2(quote! { () }).unwrap();
+        let bounded_ty: TypeVar = syn::parse2::<Type>(quote! { () })
+            .unwrap()
+            .parse_pure_type(&mut vec![])
+            .unwrap();
         let value = TypeVar::Path(TypePathVar {
             qself: Some(QSelfVar {
                 ty: Box::new(bounded_ty.clone()),
@@ -379,7 +388,10 @@ where
             });
             path
         };
-        let bounded_ty: TypeVar = syn::parse2(quote! { () }).unwrap();
+        let bounded_ty: TypeVar = syn::parse2::<Type>(quote! { () })
+            .unwrap()
+            .parse_pure_type(&mut vec![])
+            .unwrap();
         let output = TypeVar::Path(TypePathVar {
             qself: Some(QSelfVar {
                 ty: Box::new(bounded_ty.clone()),
