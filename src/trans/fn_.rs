@@ -133,26 +133,21 @@ pub fn translate_fn(
     };
 
     // translate function arguments into types and trait bounds
-    let fn_args = {
-        // insert trait bounds
-        for arg in inputs.iter() {
-            if let FnArg::Typed(pat_type) = arg {
-                let predicate = pat_type.parse_where_predicate_var(&mut env)?;
-                env.insert_predicate(predicate);
-            }
-        }
-
-        let fn_args: Vec<_> = inputs
-            .iter()
-            .filter_map(|arg| match arg {
-                FnArg::Typed(pat_type) => Some(pat_type),
-                FnArg::Receiver(_) => None,
-            })
-            .map(|PatType { pat, .. }| pat.parse_type_var(&mut env))
-            .try_collect()?;
-
-        fn_args
-    };
+    let (fn_args, fn_predicates): (Vec<_>, Vec<_>) = inputs
+        .iter()
+        .filter_map(|arg| match arg {
+            FnArg::Typed(pat_type) => Some(pat_type),
+            FnArg::Receiver(_) => None,
+        })
+        .map(|pat_type| -> syn::Result<_> {
+            let predicate = pat_type.parse_where_predicate_var(&mut env)?;
+            let arg = pat_type.pat.parse_type_var(&mut env)?;
+            env.insert_predicate(predicate.clone());
+            Ok((arg, predicate))
+        })
+        .try_collect::<_, Vec<_>, _>()?
+        .into_iter()
+        .unzip();
 
     // translate output type to trait bound
     let output_bounds = match output {
@@ -196,6 +191,19 @@ pub fn translate_fn(
         let args: Vec<_> = (0..num_args)
             .map(|idx| format_ident!("{}ARG_{}", IDENT_PREFIX, idx))
             .collect();
+        let arg_predicates: Vec<_> = args
+            .iter()
+            .zip(fn_predicates.iter())
+            .map(|(arg, predicate)| match predicate {
+                WherePredicateVar::Type(PredicateTypeVar { bounds, .. }) => {
+                    let bounds: Vec<_> = bounds
+                        .iter()
+                        .map(|bound| bound.substitute(&env, &subsitution))
+                        .collect();
+                    quote! { #arg: #(#bounds)+* }
+                }
+            })
+            .collect();
         let output_predicate = output_bounds.as_ref().map(|bounds| {
             WherePredicateVar::Type(PredicateTypeVar {
                 bounded_ty: syn::parse2::<Type>(quote! { Self::Output })
@@ -211,6 +219,7 @@ pub fn translate_fn(
             #[allow(non_snake_case)]
             pub trait #trait_name < #(#args),* >
             where
+                #(#arg_predicates,)*
                 #output_predicate
             {
                 type Output;

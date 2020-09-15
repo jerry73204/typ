@@ -1,10 +1,11 @@
 use crate::common::*;
+use typenum::Unsigned;
 
 mod binary_gcd {
     use super::*;
 
     typ! {
-        fn BinaryGcd<lhs, rhs>(lhs: typenum::Unsigned, rhs: typenum::Unsigned) -> typenum::Unsigned {
+        fn BinaryGcd<lhs, rhs>(lhs: Unsigned, rhs: Unsigned) -> Unsigned {
             if lhs == rhs {
                 lhs
             } else if lhs == 0u {
@@ -15,19 +16,25 @@ mod binary_gcd {
                 if lhs % 2u == 1u {
                     if rhs % 2u == 1u {
                         if lhs > rhs {
-                            BinaryGcd(lhs - rhs, rhs)
+                            let sub: Unsigned = lhs - rhs;
+                            BinaryGcd(sub, rhs)
                         } else {
-                            BinaryGcd(rhs - lhs, lhs)
+                            let sub: Unsigned = rhs - lhs;
+                            BinaryGcd(sub, lhs)
                         }
                     } else {
-                        BinaryGcd(lhs, rhs / 2u)
+                        let div: Unsigned = rhs / 2u;
+                        BinaryGcd(lhs, div)
 
                     }
                 } else {
                     if rhs % 2u == 1u {
-                        BinaryGcd(lhs / 2u, rhs)
+                        let div: Unsigned = lhs / 2u;
+                        BinaryGcd(div, rhs)
                     } else {
-                        BinaryGcd(lhs / 2u, rhs / 2u) * 2u
+                        let ldiv: Unsigned = lhs / 2u;
+                        let rdiv: Unsigned = rhs / 2u;
+                        BinaryGcd(ldiv, rdiv) * 2u
                     }
                 }
             }
