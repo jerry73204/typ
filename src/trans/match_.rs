@@ -107,6 +107,18 @@ where
                         None => IndexSet::new(),
                     };
 
+                    // insert new predicates for captured variables
+                    match &capture_attr {
+                        Some(CaptureAttr { params }) => {
+                            for param in params.iter() {
+                                let predicate =
+                                    param.parse_where_predicate_var(&mut branched_env)?;
+                                branched_env.insert_predicate(predicate);
+                            }
+                        }
+                        None => (),
+                    }
+
                     // generate substitutions for free variables
                     let substitution: IndexMap<_, _> = branched_env
                         .free_quantifiers()
@@ -139,7 +151,7 @@ where
                         if let Some(CaptureAttr { params }) = capture_attr {
                             let vars: Vec<_> = params
                                 .iter()
-                                .map(|ident| {
+                                .map(|SimpleTypeParam { ident, .. }| {
                                     branched_env
                                         .get_variable(ident)
                                         .map(|var| (ident.to_owned(), var))
@@ -377,7 +389,11 @@ fn unpack_pat_attr(attrs: &[Attribute]) -> syn::Result<ArmAttributes> {
                 .iter()
                 .map(|param| &param.ident)
                 .collect();
-            for capture_ident in capture_attr.params.iter() {
+            for SimpleTypeParam {
+                ident: capture_ident,
+                ..
+            } in capture_attr.params.iter()
+            {
                 if let Some(generic_ident) = generic_idents.get(capture_ident) {
                     let mut err = Error::new(
                         capture_ident.span(),

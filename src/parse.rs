@@ -78,7 +78,7 @@ impl Parse for GenericsAttr {
 
 #[derive(Debug, Clone)]
 pub struct CaptureAttr {
-    pub params: Punctuated<Ident, syn::token::Comma>,
+    pub params: Punctuated<SimpleTypeParam, syn::token::Comma>,
 }
 
 impl Parse for CaptureAttr {
