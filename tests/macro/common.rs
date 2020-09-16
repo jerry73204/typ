@@ -1,4 +1,5 @@
 pub use typ::{typ, tyuint};
+pub use typenum::{Bit, Integer, Max, Unsigned};
 
 pub trait AssertSame<Lhs, Rhs> {
     type Output;

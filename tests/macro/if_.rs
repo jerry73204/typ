@@ -1,4 +1,5 @@
 use super::common::*;
+use typenum::consts::*;
 
 typ! {
     fn IfTest1<Cond>(Cond: _) {
@@ -15,7 +16,7 @@ typ! {
         }
     }
 
-    fn IfTest3<Cond>(Cond: typenum::Bit) {
+    fn IfTest3<Cond>(Cond: Bit) {
         let mut value = 0;
 
         if Cond {
@@ -24,7 +25,7 @@ typ! {
         value
     }
 
-    fn IfTest4<Cond>(Cond: typenum::Bit) {
+    fn IfTest4<Cond>(Cond: Bit) {
         let mut value = 0;
 
         if Cond {
@@ -36,8 +37,8 @@ typ! {
         value
     }
 
-    fn IfTest5<Input>(Input: typenum::Integer) {
-        let mut value: typenum::Integer = 0;
+    fn IfTest5<Input>(Input: Integer) {
+        let mut value: Integer = 0;
 
         if Input < 5 {
             value = 1;
@@ -54,7 +55,7 @@ typ! {
         output
     }
 
-    fn IfTest6<L, R>(L: typenum::Integer, R: typenum::Integer) {
+    fn IfTest6<L, R>(L: Integer, R: Integer) {
         if L % 2 == 1 {
             if R % 2 == 1 {
                 3
@@ -71,8 +72,6 @@ typ! {
 
 #[test]
 fn test() {
-    use typenum::consts::*;
-
     let _: AssertSameOp<IfTest1Op<B0>, ()> = ();
     let _: AssertSameOp<IfTest1Op<B1>, ()> = ();
 

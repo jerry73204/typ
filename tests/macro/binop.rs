@@ -1,31 +1,31 @@
 use super::common::*;
 
 typ! {
-    fn True() -> typenum::Bit {
+    fn True() -> Bit {
         true
     }
 
-    fn False() -> typenum::Bit {
+    fn False() -> Bit {
         false
     }
 
-    fn And<Lhs, Rhs>(Lhs: typenum::Bit, Rhs: typenum::Bit) -> typenum::Bit {
+    fn And<Lhs, Rhs>(Lhs: Bit, Rhs: Bit) -> Bit {
         Lhs && Rhs
     }
 
-    fn Or<Lhs, Rhs>(Lhs: typenum::Bit, Rhs: typenum::Bit) -> typenum::Bit {
+    fn Or<Lhs, Rhs>(Lhs: Bit, Rhs: Bit) -> Bit {
         Lhs || Rhs
     }
 
-    fn Not<Value>(Value: typenum::Bit) -> typenum::Bit {
+    fn Not<Value>(Value: Bit) -> Bit {
         !Value
     }
 
-    fn XorV1<Lhs, Rhs>(Lhs: typenum::Bit, Rhs: typenum::Bit) -> typenum::Bit {
+    fn XorV1<Lhs, Rhs>(Lhs: Bit, Rhs: Bit) -> Bit {
         (Lhs && !Rhs) || (!Lhs && Rhs)
     }
 
-    fn XorV2<Lhs, Rhs>(Lhs: typenum::Bit, Rhs: typenum::Bit) -> typenum::Bit {
+    fn XorV2<Lhs, Rhs>(Lhs: Bit, Rhs: Bit) -> Bit {
         Or(And(Lhs, Not(Rhs)), And(Not(Lhs), Rhs))
     }
 }

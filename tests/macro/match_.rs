@@ -1,4 +1,5 @@
 use crate::common::*;
+use typenum::consts::*;
 
 mod animal_test {
     use super::*;
@@ -15,7 +16,7 @@ mod animal_test {
     impl Animal for Mouse {}
 
     typ! {
-        fn MatchTest1<A>(A: Animal) -> typenum::Unsigned
+        fn MatchTest1<A>(A: Animal) -> Unsigned
         {
             match A {
                 Dog => 1u,
@@ -27,8 +28,6 @@ mod animal_test {
 
     #[test]
     fn test() {
-        use typenum::consts::*;
-
         let _: AssertSameOp<MatchTest1Op<Dog>, U1> = ();
         let _: AssertSameOp<MatchTest1Op<Cat>, U2> = ();
         let _: AssertSameOp<MatchTest1Op<Mouse>, U3> = ();
@@ -75,7 +74,6 @@ mod recursive_append_list_test {
 
     #[test]
     fn test() {
-        use typenum::consts::*;
         type List0 = Nil;
         type List1 = Cons<U0, Nil>;
         type List2 = Cons<U0, Cons<U1, Nil>>;
@@ -116,8 +114,6 @@ mod attributes_test {
 
     #[test]
     fn test() {
-        use typenum::consts::*;
-
         let _: AssertSameOp<CompareOp<Alice<B0>, Alice<B0>>, ()> = ();
         let _: AssertSameOp<CompareOp<Alice<B0>, Bob<B0>>, ()> = ();
         let _: AssertSameOp<CompareOp<Bob<B0>, Alice<B0>>, ()> = ();
