@@ -12,13 +12,73 @@ where
         Expr::Block(block) => translate_block_expr(block, scope, items),
         Expr::Call(call) => translate_call_expr(call, scope, items),
         Expr::Paren(paren) => translate_expr(&paren.expr, scope, items),
-        Expr::Assign(assign) => translate_assign_expr(&assign, scope, items),
-        Expr::Lit(lit) => translate_lit_expr(&lit, scope, items),
-        Expr::Unary(unary) => translate_unary_expr(&unary, scope, items),
-        Expr::Index(index) => translate_index_expr(&index, scope, items),
+        Expr::Assign(assign) => translate_assign_expr(assign, scope, items),
+        Expr::Lit(lit) => translate_lit_expr(lit, scope, items),
+        Expr::Unary(unary) => translate_unary_expr(unary, scope, items),
+        Expr::Index(index) => translate_index_expr(index, scope, items),
+        Expr::MethodCall(call) => translate_method_call_expr(call, scope, items),
         _ => Err(Error::new(expr.span(), "unsupported expression")),
     };
     ret
+}
+
+pub fn translate_method_call_expr(
+    call: &ExprMethodCall,
+    env: &mut Env,
+    items: &mut Vec<Item>,
+) -> syn::Result<TypeVar> {
+    let ExprMethodCall {
+        receiver,
+        method,
+        turbofish,
+        args,
+        ..
+    } = call;
+
+    // translate to types
+    if let Some(turbofish) = turbofish {
+        return Err(Error::new(turbofish.span(), "turbofish is not supported"));
+    }
+
+    let receiver_ty = translate_expr(&**receiver, env, items)?;
+    let arg_tys: Vec<_> = args
+        .iter()
+        .map(|arg| translate_expr(arg, env, items))
+        .try_collect()?;
+    let trait_ = PathVar {
+        segments: vec![SegmentVar {
+            ident: method.clone(),
+            arguments: PathArgumentsVar::AngleBracketed(arg_tys),
+        }],
+    };
+    let path = {
+        let mut path = trait_.clone();
+        path.segments.push(SegmentVar {
+            ident: format_ident!("Output"),
+            arguments: PathArgumentsVar::None,
+        });
+        path
+    };
+
+    let output = TypeVar::Path(TypePathVar {
+        qself: Some(QSelfVar {
+            ty: Box::new(receiver_ty.clone()),
+            position: trait_.segments.len(),
+        }),
+        path,
+    });
+
+    let predicate = WherePredicateVar::Type(PredicateTypeVar {
+        bounded_ty: receiver_ty,
+        bounds: vec![TypeParamBoundVar::Trait(TraitBoundVar {
+            modifier: TraitBoundModifierVar::None,
+            path: trait_,
+        })],
+    });
+
+    env.insert_predicate(predicate);
+
+    Ok(output)
 }
 
 pub fn translate_index_expr(
