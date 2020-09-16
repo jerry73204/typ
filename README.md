@@ -34,13 +34,13 @@ typ! {
 
 ### Built-in typenum support
 
-TYP has first-class support to [typenum](https://github.com/paholg/typenum). Integer literals are translated to typenum types. The following literals are understood by TYP.
+TYP provides first-class support to [typenum](https://github.com/paholg/typenum). Integer literals are translated to typenum types. The following literals are understood by TYP.
 
 - Signed integers: `7` or `7i`
 - Unsigned integers: `7u`
 - Bits: `true` and `false`
 
-Common binary and unary operators applies on types with appropriate traits. For example, `A + B` expands to `<A as Add<B>>::Output` if `A` implements `Add<B>`.
+Common binary and unary operators applies on types with appropriate traits. For example, `A + B` expands to `<A as Add<B>>::Output`.
 
 ```rust
 typ! {

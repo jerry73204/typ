@@ -140,13 +140,7 @@ pub fn translate_fn(
                 "functions with self receiver must be inside an impl block",
             ))
         }
-        (None, _) => {
-            // syn::parse2::<Type>(quote! { () })
-            //     .unwrap()
-            //     .parse_pure_type(&mut vec![])
-            //     .unwrap();
-            None
-        }
+        (None, _) => None,
     };
 
     // insert free quantifiers and predicates from fn generics
