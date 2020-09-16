@@ -4,12 +4,12 @@ pub fn translate_fn(
     vis: &Visibility,
     sig: &Signature,
     block: &Block,
-    self_ty: Option<&Path>,
+    self_ty: Option<&Type>,
     impl_generics: Option<&Generics>,
 ) -> syn::Result<TokenStream> {
     let Signature {
         ident: fn_name,
-        generics,
+        generics: fn_generics,
         inputs,
         output,
         constness,
@@ -36,101 +36,141 @@ pub fn translate_fn(
         return Err(Error::new(var.span(), "variadic argument is not supported"));
     }
 
+    // reject lifetime and const generics
+    if let Some(impl_generics) = impl_generics {
+        for param in impl_generics.params.iter() {
+            match param {
+                GenericParam::Type(TypeParam { .. }) => (),
+                GenericParam::Lifetime(lifetime) => {
+                    return Err(Error::new(lifetime.span(), "lifetime is not supported"))
+                }
+                GenericParam::Const(const_) => {
+                    return Err(Error::new(const_.span(), "const generic is not supported"))
+                }
+            }
+        }
+    }
+
+    for param in fn_generics.params.iter() {
+        match param {
+            GenericParam::Type(TypeParam { .. }) => (),
+            GenericParam::Lifetime(lifetime) => {
+                return Err(Error::new(lifetime.span(), "lifetime is not supported"))
+            }
+            GenericParam::Const(const_) => {
+                return Err(Error::new(const_.span(), "const generic is not supported"))
+            }
+        }
+    }
+
     // create root scope
     let mut env = Env::new(fn_name.clone());
 
-    // check if "self" is present in the input arguments and is consistent with impl block
-    let self_ty_tokens = match (self_ty, inputs.first()) {
-        (
-            Some(self_ty),
-            Some(FnArg::Receiver(Receiver {
-                reference: None, ..
-            })),
-        ) => quote! { #self_ty },
-        (
-            Some(_self_ty),
-            Some(
-                receiver @ FnArg::Receiver(Receiver {
-                    reference: Some(_), ..
-                }),
-            ),
-        ) => {
-            return Err(Error::new(
-                receiver.span(),
-                r#"referenced receiver "&self" is not supported"#,
-            ))
-        }
-        (None, Some(FnArg::Receiver(receiver @ Receiver { .. }))) => {
-            return Err(Error::new(
-                receiver.span(),
-                "self receiver is not accepted in the impl block without self trait",
-            ))
-        }
-        _ => quote! { () },
-    };
+    // check if impl and fn generic names coincide with each other
+    if let Some(impl_generics) = impl_generics {
+        let impl_type_params: HashSet<_> = impl_generics
+            .params
+            .iter()
+            .map(|param| match param {
+                GenericParam::Type(TypeParam { ident, .. }) => ident,
+                _ => unreachable!("please report bug"),
+            })
+            .collect();
 
-    // translate function generics to initial quantifiers
-    let (_input_type_params, _input_lifetimes, _input_const_params) = {
+        for param in fn_generics.params.iter() {
+            if let GenericParam::Type(TypeParam {
+                ident: fn_ident, ..
+            }) = param
+            {
+                if let Some(impl_ident) = impl_type_params.get(fn_ident) {
+                    let mut err = Error::new(impl_ident.span(), "the generic is defined here");
+                    err.combine(Error::new(
+                        fn_ident.span(),
+                        "the generic name must not coincide with generics from impl blocks",
+                    ));
+                    return Err(err);
+                }
+            }
+        }
+    }
+
+    // insert free quantifiers and predicates from impl generics
+    if let Some(impl_generics) = impl_generics {
         // create initial quantifiers
-        for param in generics.params.iter() {
+        for param in impl_generics.params.iter() {
             if let GenericParam::Type(TypeParam { ident, .. }) = param {
                 env.insert_free_quantifier(ident.to_owned());
             }
         }
 
         // insert trait bounds
-        for param in generics.params.iter() {
+        for param in impl_generics.params.iter() {
             let predicate = param.parse_where_predicate_var(&mut env)?;
             env.insert_predicate(predicate);
         }
 
-        if let Some(where_clause) = &generics.where_clause {
+        if let Some(where_clause) = &impl_generics.where_clause {
             for predicate in where_clause.predicates.iter() {
                 let predicate = predicate.parse_where_predicate_var(&mut env)?;
                 env.insert_predicate(predicate);
             }
         }
+    }
 
-        let input_type_params: Vec<_> = generics
-            .params
-            .iter()
-            .filter_map(|param| match param {
-                GenericParam::Type(param) => Some(param),
-                _ => None,
-            })
-            .map(|TypeParam { ident, default, .. }| (ident, default))
-            .collect();
-
-        let input_lifetimes: Vec<_> = generics
-            .params
-            .iter()
-            .filter_map(|param| match param {
-                GenericParam::Lifetime(param) => Some(param),
-                _ => None,
-            })
-            .map(
-                |LifetimeDef {
-                     lifetime, bounds, ..
-                 }| (lifetime, bounds),
-            )
-            .collect();
-
-        let input_const_params: Vec<_> = generics
-            .params
-            .iter()
-            .filter_map(|param| match param {
-                GenericParam::Const(param) => Some(param),
-                _ => None,
-            })
-            .map(
-                |ConstParam {
-                     ident, ty, default, ..
-                 }| (ident, ty, default),
-            )
-            .collect();
-
-        (input_type_params, input_lifetimes, input_const_params)
+    // parse self_ty from impl block
+    let self_ty_var = match (self_ty, inputs.first()) {
+        (Some(self_ty), Some(FnArg::Receiver(receiver))) => {
+            if receiver.reference.is_some() {
+                return Err(Error::new(
+                    receiver.span(),
+                    r#"referenced receiver "&self" is not supported, use "self" instead"#,
+                ));
+            }
+            Some(self_ty.parse_type_var(&mut env)?)
+        }
+        (Some(_), _) => {
+            return Err(Error::new(
+                inputs.span(),
+                "functions inside impl block must have a self receiver",
+            ))
+        }
+        (None, Some(FnArg::Receiver(receiver))) => {
+            return Err(Error::new(
+                receiver.span(),
+                "functions with self receiver must be inside an impl block",
+            ))
+        }
+        (None, _) => {
+            // syn::parse2::<Type>(quote! { () })
+            //     .unwrap()
+            //     .parse_pure_type(&mut vec![])
+            //     .unwrap();
+            None
+        }
     };
+
+    // insert free quantifiers and predicates from fn generics
+    {
+        // insert free quantifiers
+        for param in fn_generics.params.iter() {
+            if let GenericParam::Type(TypeParam { ident, .. }) = param {
+                env.insert_free_quantifier(ident.to_owned());
+            }
+        }
+
+        // insert trait bounds
+        for param in fn_generics.params.iter() {
+            let predicate = param.parse_where_predicate_var(&mut env)?;
+            env.insert_predicate(predicate);
+        }
+
+        if let Some(where_clause) = &fn_generics.where_clause {
+            for predicate in where_clause.predicates.iter() {
+                let predicate = predicate.parse_where_predicate_var(&mut env)?;
+                env.insert_predicate(predicate);
+            }
+        }
+    }
 
     // translate function arguments into types and trait bounds
     let (fn_args, fn_predicates): (Vec<_>, Vec<_>) = inputs
@@ -158,6 +198,11 @@ pub fn translate_fn(
         }
     };
 
+    // insert "self" variable if self_ty is present
+    if let Some(var) = &self_ty_var {
+        env.insert_bounded_quantifier(format_ident!("self"), false, var.clone());
+    }
+
     // translate block
     let mut items = vec![];
     let output = translate_block(&block, &mut env, &mut items)?;
@@ -172,7 +217,7 @@ pub fn translate_fn(
         env.insert_predicate(predicate);
     }
 
-    // generate generics
+    // generate generic names
     let free_quantifiers = env.free_quantifiers();
     let subsitution: IndexMap<_, _> = free_quantifiers
         .iter()
@@ -185,7 +230,7 @@ pub fn translate_fn(
     // generate trait names
     let trait_name = format_ident!("{}", fn_name);
 
-    // generate trait
+    // generate trait item
     let trait_item: ItemTrait = {
         let num_args = fn_args.len();
         let args: Vec<_> = (0..num_args)
@@ -239,6 +284,13 @@ pub fn translate_fn(
             .map(|predicate| predicate.substitute(&env, &subsitution))
             .collect();
         let output = output.substitute(&env, &subsitution);
+        let self_ty_tokens = match &self_ty_var {
+            Some(var) => {
+                let subsituted = var.substitute(&env, &subsitution);
+                quote! { #subsituted }
+            }
+            None => quote! { () },
+        };
 
         syn::parse2(quote! {
             impl<#(#input_generics),*>  #trait_name< #(#input_types),* > for #self_ty_tokens
@@ -261,10 +313,20 @@ pub fn translate_fn(
             .collect();
         let mod_name = format_ident!("{}mod_{}", IDENT_PREFIX, fn_name);
         let type_name = format_ident!("{}Op", fn_name);
+        let type_item = if self_ty_var.is_some() {
+            let self_arg = format_ident!("{}SELF", IDENT_PREFIX);
+            quote! {
+                #vis type #type_name<#self_arg, #(#args),*> = < #self_arg as #trait_name <#(#args),*> > :: Output;
+            }
+        } else {
+            quote! {
+                #vis type #type_name<#(#args),*> = < () as #trait_name <#(#args),*> > :: Output;
+            }
+        };
 
         quote! {
             #vis use #mod_name :: #trait_name;
-            #vis type #type_name<#(#args),*> = < () as #trait_name <#(#args),*> > :: Output;
+            #type_item
 
             #[allow(non_snake_case)]
             mod #mod_name {

@@ -31,11 +31,6 @@ pub fn translate_impl(impl_: &ItemImpl) -> syn::Result<TokenStream> {
         ));
     }
 
-    let trait_path = match &**self_ty {
-        Type::Path(type_path) => &type_path.path,
-        _ => return Err(Error::new(self_ty.span(), "unsupported type variant")),
-    };
-
     let items_tokens: Vec<_> = items
         .iter()
         .map(|item| -> syn::Result<_> {
@@ -44,7 +39,7 @@ pub fn translate_impl(impl_: &ItemImpl) -> syn::Result<TokenStream> {
                     let ImplItemMethod {
                         sig, block, vis, ..
                     } = method;
-                    translate_fn(vis, sig, block, Some(trait_path), Some(generics))?
+                    translate_fn(vis, sig, block, Some(&**self_ty), Some(generics))?
                 }
                 _ => {
                     return Err(Error::new(item.span(), "unsupported item"));

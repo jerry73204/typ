@@ -1,13 +1,3 @@
-warning: unused variable: `impl_generics`
- --> $DIR/fn_.rs:8:5
-  |
-8 |     impl_generics: Option<&Generics>,
-  |     ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_impl_generics`
-  |
-  = note: `#[warn(unused_variables)]` on by default
-
-warning: 1 warning emitted
-
 error[E0271]: type mismatch resolving `<() as __TYP_MatchArm_0<Alice<typenum::B0>, Alice<typenum::B1>, Alice<typenum::B0>>>::Output == typenum::B1`
   --> $DIR/fail_match_attribute.rs:37:25
    |
