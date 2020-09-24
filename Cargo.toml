@@ -1,7 +1,7 @@
 [package]
 name = "typ"
 description = "Type-level programming in Rust"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["jerry73204 <jerry73204@gmail.com>"]
 edition = "2018"
 documentation = "https://docs.rs/typ/"
