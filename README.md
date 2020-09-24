@@ -1,8 +1,10 @@
 # TYP: type-level programming in Rust
 
+[[Book](https://github.com/jerry73204/typ-book/) | [Doc](https://docs.rs/typ)]
+
 TYP enables you to write _type operators_, the functions that translates types, in Rust syntax.
 
-It is redesign of [willcrichton/Tyrade](https://github.com/willcrichton/tyrade) and was inspired by [jerry73204/type-freak](https://github.com/jerry73204/rust-type-freak).
+It is re-design of [willcrichton/Tyrade](https://github.com/willcrichton/tyrade) and was inspired by [jerry73204/type-freak](https://github.com/jerry73204/rust-type-freak).
 
 ## Features
 
