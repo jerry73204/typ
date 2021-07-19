@@ -3,6 +3,7 @@ use super::*;
 struct ArmAttributes {
     pub generics_attr: Option<GenericsAttr>,
     pub capture_attr: Option<CaptureAttr>,
+    pub default_attr: Option<()>,
 }
 
 pub fn translate_match_expr(
@@ -86,6 +87,7 @@ where
                     let ArmAttributes {
                         generics_attr,
                         capture_attr,
+                        default_attr,
                     } = unpack_pat_attr(attrs)?;
 
                     // insert new free quantifiers and predicates
@@ -188,12 +190,17 @@ where
                     // impl item for output type
                     let match_impl: ItemImpl = {
                         let trait_ = quote!( #match_trait_name<#(#input_generics,)* #target> );
+                        let default_ = if let Some(()) = default_attr {
+                            quote! { default }
+                        } else {
+                            quote! {}
+                        };
                         let impl_ = quote! {
                             impl< #(#all_generics),* > #trait_ for ()
                             where
                                 #(#predicates),*
                             {
-                                type Output = #body_value;
+                                #default_ type Output = #body_value;
                             }
                         };
                         syn::parse2(impl_)?
@@ -336,6 +343,7 @@ where
 fn unpack_pat_attr(attrs: &[Attribute]) -> syn::Result<ArmAttributes> {
     let mut generics_attr = None;
     let mut capture_attr = None;
+    let mut default_attr = None;
 
     // check attributes one by one
     for attr in attrs.iter() {
@@ -361,6 +369,15 @@ fn unpack_pat_attr(attrs: &[Attribute]) -> syn::Result<ArmAttributes> {
                         ));
                     }
                     None => capture_attr = Some(attr),
+                },
+                "default" => match default_attr {
+                    Some(_) => {
+                        return Err(Error::new(
+                            path.span(),
+                            "the default attribute is defined more than once",
+                        ));
+                    }
+                    None => default_attr = Some(()),
                 },
                 _ => return Err(Error::new(path.span(), "unsupported attribute")),
             },
@@ -413,6 +430,7 @@ fn unpack_pat_attr(attrs: &[Attribute]) -> syn::Result<ArmAttributes> {
     Ok(ArmAttributes {
         generics_attr,
         capture_attr,
+        default_attr,
     })
 }
 
